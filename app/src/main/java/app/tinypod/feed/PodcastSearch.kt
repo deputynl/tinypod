@@ -29,6 +29,6 @@ object PodcastSearch {
         feedUrl = feedUrl,
         artworkUrl = listOf("artworkUrl600", "artworkUrl100").map(r::optString).firstOrNull { it.isNotBlank() },
       )
-    }
+    }.distinctBy { it.feedUrl } // iTunes can list the same feed twice; the UI keys rows by feedUrl
   }
 }

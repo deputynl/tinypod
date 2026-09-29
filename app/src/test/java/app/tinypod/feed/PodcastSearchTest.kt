@@ -26,4 +26,19 @@ class PodcastSearchTest {
       results,
     )
   }
+
+  @Test
+  fun `keeps only the first result per feed`() {
+    val json =
+      """
+      {"resultCount": 2, "results": [
+        {"collectionName": "Show A", "feedUrl": "https://a.example/rss"},
+        {"collectionName": "Show A (again)", "feedUrl": "https://a.example/rss"}
+      ]}
+      """
+
+    val results = PodcastSearch.parseResults(json)
+
+    assertEquals(listOf(SearchResult("Show A", null, "https://a.example/rss", null)), results)
+  }
 }
