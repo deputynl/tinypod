@@ -1,5 +1,6 @@
 package app.tinypod.ui
 
+import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -103,7 +105,25 @@ fun QueueScreen(vm: TabsViewModel) {
 @Composable
 fun DownloadsScreen(vm: TabsViewModel) {
   val rows by vm.downloads.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "No downloaded episodes.", currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
+  val size by vm.downloadsSize.collectAsStateWithLifecycle()
+  val done = rows.count { it.episode.isDownloaded }
+  Column(Modifier.fillMaxSize()) {
+    if (done > 0) {
+      Text(
+        "${if (done == 1) "1 episode" else "$done episodes"} · ${Formatter.formatShortFileSize(LocalContext.current, size)}",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+      )
+    }
+    EpisodeList(
+      rows,
+      empty = "No downloaded episodes.\nUse the download button on any episode.",
+      inDownloads = true,
+      currentId = currentEpisodeId(),
+      onEvent = rememberEpisodeEventHandler(),
+    )
+  }
 }
 
 // Stateless content, previewable without a database.

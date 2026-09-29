@@ -8,6 +8,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -147,6 +148,21 @@ class PlaybackService : MediaSessionService() {
     override fun onPlaybackStateChanged(playbackState: Int) {
       if (playbackState == Player.STATE_READY && !durationSaved) scope.launch { saveMeasuredDuration() }
       if (playbackState == Player.STATE_ENDED) scope.launch { onEpisodeEnded() }
+    }
+
+    override fun onPlayerError(error: PlaybackException) {
+      // A download deleted while its episode was loaded: carry on from the stream at the same spot.
+      val item = player.currentMediaItem ?: return
+      if (item.localConfiguration?.uri?.scheme != "file") return
+      val position = player.currentPosition
+      val resume = player.playWhenReady
+      scope.launch {
+        val row = currentEpisodeId()?.let { db.episodeDao().getWithPodcast(it) } ?: return@launch
+        if (row.episode.localFilePath?.let { File(it).exists() } == true) return@launch // a real playback error
+        player.setMediaItem(row.toMediaItem(), position)
+        player.prepare()
+        player.playWhenReady = resume
+      }
     }
 
     override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {

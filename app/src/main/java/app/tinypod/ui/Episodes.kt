@@ -12,8 +12,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DownloadForOffline
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -24,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,15 +66,26 @@ sealed interface EpisodeEvent {
   data class SetPlayed(override val episodeId: Long, val played: Boolean) : EpisodeEvent
 
   data class RemoveFromHistory(override val episodeId: Long) : EpisodeEvent
+
+  data class Download(override val episodeId: Long) : EpisodeEvent
+
+  data class CancelDownload(override val episodeId: Long) : EpisodeEvent
+
+  data class DeleteDownload(override val episodeId: Long) : EpisodeEvent
 }
+
+/** Progress of the episodes being downloaded (see [app.tinypod.data.Downloads.progress]); empty in previews. */
+val LocalDownloadProgress = compositionLocalOf<Map<Long, Float?>> { emptyMap() }
 
 /** Handles [EpisodeEvent]s from any episode list: playback goes to the player, the rest to the database. */
 @Composable
 fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
   val player = LocalPlayer.current
-  val actions = (LocalContext.current.applicationContext as TinypodApp).episodeActions
+  val app = LocalContext.current.applicationContext as TinypodApp
+  val actions = app.episodeActions
+  val downloads = app.downloads
   val scope = rememberCoroutineScope()
-  return remember(player, actions) {
+  return remember(player, actions, downloads) {
     { event ->
       when (event) {
         is EpisodeEvent.Play -> player.play(event.episodeId)
@@ -77,6 +94,9 @@ fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
         is EpisodeEvent.RemoveFromQueue -> scope.launch { actions.removeFromQueue(event.episodeId) }
         is EpisodeEvent.SetPlayed -> scope.launch { actions.setPlayed(event.episodeId, event.played) }
         is EpisodeEvent.RemoveFromHistory -> scope.launch { actions.removeFromHistory(event.episodeId) }
+        is EpisodeEvent.Download -> scope.launch { downloads.start(event.episodeId) }
+        is EpisodeEvent.CancelDownload -> scope.launch { downloads.cancel(event.episodeId) }
+        is EpisodeEvent.DeleteDownload -> scope.launch { downloads.delete(event.episodeId) }
       }
     }
   }
@@ -97,6 +117,7 @@ fun EpisodeList(
   showPodcast: Boolean = true,
   inQueue: Boolean = false,
   inHistory: Boolean = false,
+  inDownloads: Boolean = false,
   scrollableEmpty: Boolean = false,
   currentId: Long? = null,
   /** Groups consecutive rows under a sticky header with this label (rows must already be in section order). */
@@ -113,7 +134,7 @@ fun EpisodeList(
         stickyHeader(key = "section-$rowSection") { SectionHeader(rowSection) }
       }
       item(key = row.episode.id) {
-        EpisodeRow(row, showPodcast, inQueue, inHistory, isCurrent = row.episode.id == currentId, onEvent)
+        EpisodeRow(row, showPodcast, inQueue, inHistory, inDownloads, isCurrent = row.episode.id == currentId, onEvent)
         HorizontalDivider()
       }
     }
@@ -136,6 +157,7 @@ private fun EpisodeRow(
   showPodcast: Boolean,
   inQueue: Boolean,
   inHistory: Boolean,
+  inDownloads: Boolean,
   isCurrent: Boolean,
   onEvent: (EpisodeEvent) -> Unit,
 ) {
@@ -157,6 +179,7 @@ private fun EpisodeRow(
     trailingContent = {
       Row(verticalAlignment = Alignment.CenterVertically) {
         if (isCurrent) Icon(Icons.Filled.GraphicEq, contentDescription = "Now playing", tint = MaterialTheme.colorScheme.primary)
+        DownloadButton(e, deletable = inDownloads, onEvent)
         Box {
           IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Episode actions") }
           DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -170,11 +193,37 @@ private fun EpisodeRow(
             if (e.isPlayed) DropdownMenuItem(text = { Text("Mark as unplayed") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, false)) })
             else DropdownMenuItem(text = { Text("Mark as played") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, true)) })
             if (inHistory) DropdownMenuItem(text = { Text("Remove from history") }, onClick = { pick(EpisodeEvent.RemoveFromHistory(e.id)) })
+            if (e.isDownloaded) DropdownMenuItem(text = { Text("Delete download") }, onClick = { pick(EpisodeEvent.DeleteDownload(e.id)) })
           }
         }
       }
     },
   )
+}
+
+/** Download (not downloaded), progress ring that cancels (downloading), or a "downloaded" mark or delete button. */
+@Composable
+private fun DownloadButton(e: Episode, deletable: Boolean, onEvent: (EpisodeEvent) -> Unit) {
+  when {
+    e.isDownloaded && deletable ->
+      IconButton(onClick = { onEvent(EpisodeEvent.DeleteDownload(e.id)) }) { Icon(Icons.Outlined.Delete, contentDescription = "Delete download") }
+    e.isDownloaded ->
+      Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        Icon(Icons.Filled.DownloadForOffline, contentDescription = "Downloaded", tint = MaterialTheme.colorScheme.primary)
+      }
+    e.isDownloading ->
+      IconButton(onClick = { onEvent(EpisodeEvent.CancelDownload(e.id)) }) {
+        val progress = LocalDownloadProgress.current[e.id]
+        val ring = Modifier.size(22.dp)
+        if (progress != null) CircularProgressIndicator(progress = { progress }, ring, strokeWidth = 2.5.dp)
+        else CircularProgressIndicator(ring, strokeWidth = 2.5.dp)
+        Icon(Icons.Filled.Stop, contentDescription = "Cancel download", Modifier.size(12.dp))
+      }
+    else ->
+      IconButton(onClick = { onEvent(EpisodeEvent.Download(e.id)) }) {
+        Icon(Icons.Outlined.DownloadForOffline, contentDescription = "Download")
+      }
+  }
 }
 
 @Composable

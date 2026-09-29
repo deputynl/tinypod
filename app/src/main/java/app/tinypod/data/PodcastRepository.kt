@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
 /** Subscribing to feeds and keeping their episodes up to date. */
-class PodcastRepository(private val db: TinypodDatabase, private val parser: RssParser = RssParser()) {
+class PodcastRepository(private val db: TinypodDatabase, private val downloads: Downloads, private val parser: RssParser = RssParser()) {
   private val podcasts = db.podcastDao()
   private val episodes = db.episodeDao()
 
@@ -40,7 +40,10 @@ class PodcastRepository(private val db: TinypodDatabase, private val parser: Rss
     return podcast.copy(id = id)
   }
 
-  suspend fun unsubscribe(podcast: Podcast) = podcasts.delete(podcast)
+  suspend fun unsubscribe(podcast: Podcast) {
+    downloads.removeForPodcast(podcast.id)
+    podcasts.delete(podcast)
+  }
 
   suspend fun refresh(podcast: Podcast) {
     val now = System.currentTimeMillis()

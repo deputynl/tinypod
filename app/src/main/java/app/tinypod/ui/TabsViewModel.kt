@@ -9,12 +9,16 @@ import app.tinypod.TinypodApp
 import app.tinypod.data.Folder
 import app.tinypod.data.PodcastRepository
 import app.tinypod.data.TinypodDatabase
+import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -25,7 +29,14 @@ class TabsViewModel(private val db: TinypodDatabase, private val repository: Pod
   val podcasts = db.podcastDao().observeAll().state()
   val queue = db.queueDao().observe().state()
   val history = db.episodeDao().observeHistory().state()
-  val downloads = db.episodeDao().observeDownloaded().state()
+  val downloads = db.episodeDao().observeDownloads().state()
+
+  /** Space taken by finished downloads, in bytes. */
+  val downloadsSize: StateFlow<Long> =
+    downloads
+      .map { rows -> rows.sumOf { row -> row.episode.localFilePath?.let { File(it).length() } ?: 0L } }
+      .flowOn(Dispatchers.IO)
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
   private val _refreshing = MutableStateFlow(false)
   val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()

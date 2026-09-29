@@ -74,8 +74,21 @@ interface EpisodeDao {
   @Query("$EPISODE_ROW WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
   fun observeHistory(): Flow<List<EpisodeWithPodcast>>
 
-  @Query("$EPISODE_ROW WHERE e.localFilePath IS NOT NULL ORDER BY e.publishedAt DESC")
-  fun observeDownloaded(): Flow<List<EpisodeWithPodcast>>
+  /** Downloads in progress first, then finished ones; newest episodes first within each. */
+  @Query("$EPISODE_ROW WHERE e.localFilePath IS NOT NULL OR e.downloadId IS NOT NULL ORDER BY e.downloadId IS NULL, e.publishedAt DESC")
+  fun observeDownloads(): Flow<List<EpisodeWithPodcast>>
+
+  @Query("SELECT id AS episodeId, downloadId FROM Episode WHERE downloadId IS NOT NULL")
+  fun observeActiveDownloads(): Flow<List<ActiveDownload>>
+
+  @Query("SELECT * FROM Episode WHERE localFilePath IS NOT NULL OR downloadId IS NOT NULL")
+  suspend fun getWithDownloads(): List<Episode>
+
+  @Query("SELECT * FROM Episode WHERE downloadId = :downloadId")
+  suspend fun findByDownloadId(downloadId: Long): Episode?
+
+  @Query("SELECT * FROM Episode WHERE podcastId = :podcastId AND (localFilePath IS NOT NULL OR downloadId IS NOT NULL)")
+  suspend fun getDownloadsForPodcast(podcastId: Long): List<Episode>
 
   @Query("SELECT * FROM Episode WHERE id = :id")
   suspend fun get(id: Long): Episode?
@@ -127,7 +140,11 @@ interface EpisodeDao {
   @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun markFinished(id: Long, playedAt: Long)
 
-  @Query("UPDATE Episode SET localFilePath = :path WHERE id = :id")
+  @Query("UPDATE Episode SET downloadId = :downloadId WHERE id = :id")
+  suspend fun setDownloadId(id: Long, downloadId: Long?)
+
+  /** Records a finished download (or, with a null [path], a deleted one). */
+  @Query("UPDATE Episode SET localFilePath = :path, downloadId = NULL WHERE id = :id")
   suspend fun setLocalFile(id: Long, path: String?)
 }
 

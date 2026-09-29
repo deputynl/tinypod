@@ -39,7 +39,8 @@ data class Podcast(
 
 /**
  * One feed item plus its per-episode playback state. History is derived from [lastPlayedAt] rather
- * than kept in a separate log table, and "downloaded" is simply [localFilePath] being non-null.
+ * than kept in a separate log table. "Downloaded" is simply [localFilePath] being non-null, and
+ * "downloading" is [downloadId] (a DownloadManager id) being non-null.
  */
 @Entity(
   indices = [Index(value = ["podcastId", "guid"], unique = true), Index("publishedAt"), Index("lastPlayedAt")],
@@ -64,9 +65,13 @@ data class Episode(
   val isPlayed: Boolean = false,
   val lastPlayedAt: Long? = null,
   val localFilePath: String? = null,
+  val downloadId: Long? = null,
 ) {
   val isDownloaded: Boolean
     get() = localFilePath != null
+
+  val isDownloading: Boolean
+    get() = downloadId != null
 }
 
 /** An entry in the "play next" list, ordered by [position]. */
@@ -86,3 +91,6 @@ data class EpisodeWithPodcast(
   val podcastTitle: String,
   val artworkUrl: String?,
 )
+
+/** An episode being downloaded, and its DownloadManager id. */
+data class ActiveDownload(val episodeId: Long, val downloadId: Long)

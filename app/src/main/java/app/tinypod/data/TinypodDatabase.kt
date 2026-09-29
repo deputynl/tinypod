@@ -8,8 +8,11 @@ import androidx.room.RoomDatabase
 
 @Database(
   entities = [Folder::class, Podcast::class, Episode::class, QueueItem::class],
-  version = 2,
-  autoMigrations = [AutoMigration(from = 1, to = 2)], // 2: Episode.durationMeasured
+  version = 3,
+  autoMigrations = [
+    AutoMigration(from = 1, to = 2), // Episode.durationMeasured
+    AutoMigration(from = 2, to = 3), // Episode.downloadId
+  ],
 )
 abstract class TinypodDatabase : RoomDatabase() {
   abstract fun folderDao(): FolderDao
