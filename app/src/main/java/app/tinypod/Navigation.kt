@@ -1,5 +1,6 @@
 package app.tinypod
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -16,8 +17,10 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.tinypod.ui.AddPodcastScreen
 import app.tinypod.ui.DownloadsScreen
+import app.tinypod.ui.FullPlayerScreen
 import app.tinypod.ui.HistoryScreen
 import app.tinypod.ui.LibraryScreen
+import app.tinypod.ui.MiniPlayer
 import app.tinypod.ui.NewEpisodesScreen
 import app.tinypod.ui.PodcastScreen
 import app.tinypod.ui.QueueScreen
@@ -30,6 +33,8 @@ fun MainNavigation() {
 
   Scaffold(
     bottomBar = {
+      Column {
+      if (backStack.lastOrNull() != FullPlayer) MiniPlayer(onOpen = { backStack.add(FullPlayer) })
       NavigationBar {
         Tab.entries.forEach { tab ->
           NavigationBarItem(
@@ -43,6 +48,7 @@ fun MainNavigation() {
             label = { Text(tab.label) },
           )
         }
+      }
       }
     }
   ) { padding ->
@@ -67,6 +73,7 @@ fun MainNavigation() {
             )
           }
           entry<PodcastDetail> { key -> PodcastScreen(key.podcastId, onUnsubscribed = { backStack.removeLastOrNull() }) }
+          entry<FullPlayer> { FullPlayerScreen() }
           entry<Queue> { QueueScreen(vm) }
           entry<History> { HistoryScreen(vm) }
           entry<Downloads> { DownloadsScreen(vm) }

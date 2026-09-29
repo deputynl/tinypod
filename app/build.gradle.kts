@@ -82,6 +82,15 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   ksp(libs.androidx.room.compiler)
 
+  // Playback
+  implementation(libs.androidx.media3.exoplayer)
+  implementation(libs.androidx.media3.session)
+  implementation(libs.kotlinx.coroutines.guava)
+
+  // Artwork
+  implementation(libs.coil.compose)
+  implementation(libs.coil.network.okhttp)
+
   // Background feed refresh
   implementation(libs.androidx.work.runtime.ktx)
 

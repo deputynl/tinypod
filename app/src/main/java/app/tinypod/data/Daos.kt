@@ -76,8 +76,12 @@ interface EpisodeDao {
   @Query("SELECT * FROM Episode WHERE id = :id")
   suspend fun get(id: Long): Episode?
 
-  @Query("SELECT * FROM Episode WHERE lastPlayedAt IS NOT NULL ORDER BY lastPlayedAt DESC LIMIT 1")
-  suspend fun lastPlayed(): Episode?
+  @Query("$EPISODE_ROW WHERE e.id = :id")
+  suspend fun getWithPodcast(id: Long): EpisodeWithPodcast?
+
+  /** The episode to resume: most recently played, not yet finished. */
+  @Query("$EPISODE_ROW WHERE e.lastPlayedAt IS NOT NULL AND e.isPlayed = 0 ORDER BY e.lastPlayedAt DESC LIMIT 1")
+  suspend fun resumable(): EpisodeWithPodcast?
 
   /** Inserts episodes not seen before; existing ones (same podcast + guid) keep their playback state. */
   @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -102,8 +106,12 @@ interface EpisodeDao {
   @Query("UPDATE Episode SET positionMs = :positionMs, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun savePosition(id: Long, positionMs: Long, playedAt: Long)
 
-  @Query("UPDATE Episode SET isPlayed = :played WHERE id = :id")
+  /** Marks an episode (un)played; either way it starts from the beginning next time. */
+  @Query("UPDATE Episode SET isPlayed = :played, positionMs = 0 WHERE id = :id")
   suspend fun setPlayed(id: Long, played: Boolean)
+
+  @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0, lastPlayedAt = :playedAt WHERE id = :id")
+  suspend fun markFinished(id: Long, playedAt: Long)
 
   @Query("UPDATE Episode SET localFilePath = :path WHERE id = :id")
   suspend fun setLocalFile(id: Long, path: String?)
@@ -113,6 +121,9 @@ interface EpisodeDao {
 interface QueueDao {
   @Query("$EPISODE_ROW JOIN QueueItem q ON q.episodeId = e.id ORDER BY q.position")
   fun observe(): Flow<List<EpisodeWithPodcast>>
+
+  @Query("SELECT episodeId FROM QueueItem ORDER BY position")
+  suspend fun episodeIds(): List<Long>
 
   @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM QueueItem")
   suspend fun nextPosition(): Int
@@ -130,6 +141,14 @@ interface QueueDao {
 
   @Transaction
   suspend fun append(episodeId: Long) = insert(QueueItem(episodeId, nextPosition()))
+
+  /** Puts the episode at the front of the queue, moving it there if it was already queued. */
+  @Transaction
+  suspend fun prepend(episodeId: Long) = replace(listOf(episodeId) + episodeIds().filter { it != episodeId })
+
+  /** Removes and returns the first queued episode id, if any. */
+  @Transaction
+  suspend fun pop(): Long? = episodeIds().firstOrNull()?.also { remove(it) }
 
   /** Rewrites the whole queue in the given order. */
   @Transaction

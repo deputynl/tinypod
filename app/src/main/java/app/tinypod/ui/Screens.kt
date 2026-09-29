@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -37,8 +38,6 @@ import app.tinypod.data.EpisodeWithPodcast
 import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
 import app.tinypod.theme.TinypodTheme
-import java.text.DateFormat
-import java.util.Date
 
 // Stateful entry points, wired to the ViewModel.
 
@@ -62,7 +61,7 @@ fun NewEpisodesScreen(vm: TabsViewModel, onAddPodcast: () -> Unit) {
       if (podcasts.isEmpty()) {
         EmptyState("No podcasts yet.", action = "Add a podcast", onAction = onAddPodcast, scrollable = true)
       } else {
-        EpisodeList(rows, empty = "You're all caught up.", scrollableEmpty = true)
+        EpisodeList(rows, empty = "You're all caught up.", scrollableEmpty = true, currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
       }
     }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
@@ -84,43 +83,22 @@ fun LibraryScreen(vm: TabsViewModel, onPodcastClick: (Long) -> Unit, onAddPodcas
 @Composable
 fun QueueScreen(vm: TabsViewModel) {
   val rows by vm.queue.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "Your queue is empty.")
+  EpisodeList(rows, empty = "Your queue is empty.", inQueue = true, currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
 }
 
 @Composable
 fun HistoryScreen(vm: TabsViewModel) {
   val rows by vm.history.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "Nothing played yet.")
+  EpisodeList(rows, empty = "Nothing played yet.", currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
 }
 
 @Composable
 fun DownloadsScreen(vm: TabsViewModel) {
   val rows by vm.downloads.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "No downloaded episodes.")
+  EpisodeList(rows, empty = "No downloaded episodes.", currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
 }
 
 // Stateless content, previewable without a database.
-
-@Composable
-fun EpisodeList(
-  rows: List<EpisodeWithPodcast>,
-  empty: String,
-  modifier: Modifier = Modifier,
-  showPodcast: Boolean = true,
-  scrollableEmpty: Boolean = false,
-) {
-  if (rows.isEmpty()) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
-  LazyColumn(modifier.fillMaxSize()) {
-    items(rows, key = { it.episode.id }) { row ->
-      ListItem(
-        overlineContent = if (showPodcast) ({ Text(row.podcastTitle, maxLines = 1) }) else null,
-        headlineContent = { Text(row.episode.title, maxLines = 2) },
-        supportingContent = { Text(episodeMeta(row.episode)) },
-      )
-      HorizontalDivider()
-    }
-  }
-}
 
 @Composable
 fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, onPodcastClick: (Long) -> Unit, modifier: Modifier = Modifier) {
@@ -134,6 +112,7 @@ fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, onPodcastClic
     items(podcasts.filter { it.folderId == null }, key = { "p${it.id}" }) { podcast ->
       ListItem(
         modifier = Modifier.clickable { onPodcastClick(podcast.id) },
+        leadingContent = { Artwork(podcast.artworkUrl, Modifier.size(48.dp)) },
         headlineContent = { Text(podcast.title) },
         supportingContent = podcast.author?.let { { Text(it) } },
       )
@@ -142,14 +121,8 @@ fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, onPodcastClic
   }
 }
 
-private fun episodeMeta(e: Episode): String {
-  val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.publishedAt))
-  val minutes = e.durationMs?.let { (it + 30_000) / 60_000 }
-  return if (minutes != null) "$date · $minutes min" else date
-}
-
 @Composable
-private fun EmptyState(
+internal fun EmptyState(
   text: String,
   modifier: Modifier = Modifier,
   action: String? = null,
