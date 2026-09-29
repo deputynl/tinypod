@@ -46,6 +46,9 @@ class PlaybackService : MediaSessionService() {
   /** Whether the current item has played at all since it was loaded; until then there's no progress to save. */
   private var playedSinceLoad = false
 
+  /** Whether the current item's real length has been stored yet (see [saveMeasuredDuration]). */
+  private var durationSaved = false
+
   override fun onCreate() {
     super.onCreate()
     player =
@@ -113,6 +116,14 @@ class PlaybackService : MediaSessionService() {
     runBlocking(Dispatchers.IO) { db.episodeDao().savePosition(id, position, System.currentTimeMillis()) }
   }
 
+  /** Stores the length of the loaded audio, which is often longer than the feed says (e.g. inserted ads). */
+  private suspend fun saveMeasuredDuration() {
+    val id = currentEpisodeId() ?: return
+    val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: return
+    durationSaved = true
+    db.episodeDao().saveMeasuredDuration(id, duration)
+  }
+
   private suspend fun onEpisodeEnded() {
     currentEpisodeId()?.let { db.episodeDao().markFinished(it, System.currentTimeMillis()) }
     val next = db.queueDao().pop()?.let { db.episodeDao().getWithPodcast(it) } ?: return
@@ -130,9 +141,11 @@ class PlaybackService : MediaSessionService() {
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
       playedSinceLoad = false
+      durationSaved = false
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+      if (playbackState == Player.STATE_READY && !durationSaved) scope.launch { saveMeasuredDuration() }
       if (playbackState == Player.STATE_ENDED) scope.launch { onEpisodeEnded() }
     }
 

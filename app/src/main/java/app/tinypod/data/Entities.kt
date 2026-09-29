@@ -1,5 +1,6 @@
 package app.tinypod.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -54,7 +55,10 @@ data class Episode(
   val title: String,
   val audioUrl: String,
   val publishedAt: Long,
+  /** The feed's <itunes:duration> until the audio has been loaded, then the real length (see [durationMeasured]). */
   val durationMs: Long? = null,
+  /** Whether [durationMs] was measured from the audio; feeds often understate it (e.g. inserted ads). */
+  @ColumnInfo(defaultValue = "0") val durationMeasured: Boolean = false,
   val description: String? = null,
   val positionMs: Long = 0,
   val isPlayed: Boolean = false,

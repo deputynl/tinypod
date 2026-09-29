@@ -87,9 +87,12 @@ interface EpisodeDao {
   @Insert(onConflict = OnConflictStrategy.IGNORE)
   suspend fun insertNew(episodes: List<Episode>): List<Long>
 
+  /** A measured duration survives refreshes unless the audio itself was replaced. */
   @Query(
     """UPDATE Episode SET title = :title, audioUrl = :audioUrl,
-       durationMs = COALESCE(:durationMs, durationMs), description = :description
+       durationMs = CASE WHEN durationMeasured AND audioUrl = :audioUrl THEN durationMs ELSE COALESCE(:durationMs, durationMs) END,
+       durationMeasured = durationMeasured AND audioUrl = :audioUrl,
+       description = :description
        WHERE podcastId = :podcastId AND guid = :guid"""
   )
   suspend fun updateFeedFields(podcastId: Long, guid: String, title: String, audioUrl: String, durationMs: Long?, description: String?)
@@ -102,6 +105,9 @@ interface EpisodeDao {
       if (ids[i] == -1L) updateFeedFields(e.podcastId, e.guid, e.title, e.audioUrl, e.durationMs, e.description)
     }
   }
+
+  @Query("UPDATE Episode SET durationMs = :durationMs, durationMeasured = 1 WHERE id = :id")
+  suspend fun saveMeasuredDuration(id: Long, durationMs: Long)
 
   @Query("UPDATE Episode SET positionMs = :positionMs, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun savePosition(id: Long, positionMs: Long, playedAt: Long)
