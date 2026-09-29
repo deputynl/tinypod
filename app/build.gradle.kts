@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.tinypod"
+    namespace = "app.tinypod"
     compileSdk = 37
     defaultConfig {
         applicationId = "app.tinypod"
