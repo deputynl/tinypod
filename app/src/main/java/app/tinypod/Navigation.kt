@@ -17,6 +17,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.tinypod.ui.AddPodcastScreen
 import app.tinypod.ui.DownloadsScreen
+import app.tinypod.ui.FolderScreen
 import app.tinypod.ui.FullPlayerScreen
 import app.tinypod.ui.HistoryScreen
 import app.tinypod.ui.LibraryScreen
@@ -62,7 +63,12 @@ fun MainNavigation() {
         entryProvider {
           entry<NewEpisodes> { NewEpisodesScreen(vm, onAddPodcast = { backStack.add(AddPodcast) }) }
           entry<Library> {
-            LibraryScreen(vm, onPodcastClick = { backStack.add(PodcastDetail(it)) }, onAddPodcast = { backStack.add(AddPodcast) })
+            LibraryScreen(
+              vm,
+              onPodcastClick = { backStack.add(PodcastDetail(it)) },
+              onFolderClick = { backStack.add(FolderDetail(it)) },
+              onAddPodcast = { backStack.add(AddPodcast) },
+            )
           }
           entry<AddPodcast> {
             AddPodcastScreen(
@@ -73,6 +79,9 @@ fun MainNavigation() {
             )
           }
           entry<PodcastDetail> { key -> PodcastScreen(key.podcastId, onUnsubscribed = { backStack.removeLastOrNull() }) }
+          entry<FolderDetail> { key ->
+            FolderScreen(key.folderId, onPodcastClick = { backStack.add(PodcastDetail(it)) }, onDeleted = { backStack.removeLastOrNull() })
+          }
           entry<FullPlayer> { FullPlayerScreen() }
           entry<Queue> { QueueScreen(vm) }
           entry<History> { HistoryScreen(vm) }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.tinypod.TinypodApp
+import app.tinypod.data.Folder
 import app.tinypod.data.PodcastRepository
 import app.tinypod.data.TinypodDatabase
 import java.util.concurrent.TimeUnit
@@ -18,7 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Exposes the lists behind the five top-level tabs, and feed refreshing. */
-class TabsViewModel(db: TinypodDatabase, private val repository: PodcastRepository) : ViewModel() {
+class TabsViewModel(private val db: TinypodDatabase, private val repository: PodcastRepository) : ViewModel() {
   val newEpisodes = db.episodeDao().observeNew().state()
   val folders = db.folderDao().observeAll().state()
   val podcasts = db.podcastDao().observeAll().state()
@@ -49,6 +50,10 @@ class TabsViewModel(db: TinypodDatabase, private val repository: PodcastReposito
         _refreshing.value = false
       }
     }
+  }
+
+  fun createFolder(name: String) {
+    viewModelScope.launch { db.folderDao().insert(Folder(name = name.trim())) }
   }
 
   fun refreshFailuresShown() {

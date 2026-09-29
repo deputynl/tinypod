@@ -13,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -26,7 +28,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -69,14 +73,24 @@ fun NewEpisodesScreen(vm: TabsViewModel, onAddPodcast: () -> Unit) {
 }
 
 @Composable
-fun LibraryScreen(vm: TabsViewModel, onPodcastClick: (Long) -> Unit, onAddPodcast: () -> Unit) {
+fun LibraryScreen(vm: TabsViewModel, onPodcastClick: (Long) -> Unit, onFolderClick: (Long) -> Unit, onAddPodcast: () -> Unit) {
   val folders by vm.folders.collectAsStateWithLifecycle()
   val podcasts by vm.podcasts.collectAsStateWithLifecycle()
+  var newFolder by remember { mutableStateOf(false) }
   Box(Modifier.fillMaxSize()) {
-    LibraryContent(folders, podcasts, onPodcastClick)
+    LibraryContent(folders, podcasts, onPodcastClick, onFolderClick, onNewFolder = { newFolder = true })
     FloatingActionButton(onClick = onAddPodcast, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
       Icon(Icons.Filled.Add, contentDescription = "Add podcast")
     }
+  }
+  if (newFolder) {
+    FolderNameDialog(
+      title = "New folder",
+      confirm = "Create",
+      folders = folders,
+      onConfirm = { vm.createFolder(it); newFolder = false },
+      onDismiss = { newFolder = false },
+    )
   }
 }
 
@@ -101,24 +115,47 @@ fun DownloadsScreen(vm: TabsViewModel) {
 // Stateless content, previewable without a database.
 
 @Composable
-fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, onPodcastClick: (Long) -> Unit, modifier: Modifier = Modifier) {
+fun LibraryContent(
+  folders: List<Folder>,
+  podcasts: List<Podcast>,
+  onPodcastClick: (Long) -> Unit,
+  onFolderClick: (Long) -> Unit,
+  onNewFolder: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   if (folders.isEmpty() && podcasts.isEmpty()) return EmptyState("No podcasts yet.\nTap + to add one.", modifier)
   LazyColumn(modifier.fillMaxSize()) {
-    items(folders, key = { "f${it.id}" }) { folder ->
-      val count = podcasts.count { it.folderId == folder.id }
-      ListItem(headlineContent = { Text(folder.name) }, supportingContent = { Text("$count podcasts") })
-      HorizontalDivider()
-    }
-    items(podcasts.filter { it.folderId == null }, key = { "p${it.id}" }) { podcast ->
+    item(key = "new-folder") {
       ListItem(
-        modifier = Modifier.clickable { onPodcastClick(podcast.id) },
-        leadingContent = { Artwork(podcast.artworkUrl, Modifier.size(48.dp)) },
-        headlineContent = { Text(podcast.title) },
-        supportingContent = podcast.author?.let { { Text(it) } },
+        modifier = Modifier.clickable(onClick = onNewFolder),
+        leadingContent = { Icon(Icons.Filled.CreateNewFolder, contentDescription = null, Modifier.size(48.dp).padding(8.dp)) },
+        headlineContent = { Text("New folder") },
       )
       HorizontalDivider()
     }
+    items(folders, key = { "f${it.id}" }) { folder ->
+      val count = podcasts.count { it.folderId == folder.id }
+      ListItem(
+        modifier = Modifier.clickable { onFolderClick(folder.id) },
+        leadingContent = { Icon(Icons.Filled.Folder, contentDescription = null, Modifier.size(48.dp).padding(8.dp)) },
+        headlineContent = { Text(folder.name) },
+        supportingContent = { Text(if (count == 1) "1 podcast" else "$count podcasts") },
+      )
+      HorizontalDivider()
+    }
+    items(podcasts.filter { it.folderId == null }, key = { "p${it.id}" }) { podcast -> PodcastRow(podcast, onPodcastClick) }
   }
+}
+
+@Composable
+internal fun PodcastRow(podcast: Podcast, onClick: (Long) -> Unit) {
+  ListItem(
+    modifier = Modifier.clickable { onClick(podcast.id) },
+    leadingContent = { Artwork(podcast.artworkUrl, Modifier.size(48.dp)) },
+    headlineContent = { Text(podcast.title) },
+    supportingContent = podcast.author?.let { { Text(it) } },
+  )
+  HorizontalDivider()
 }
 
 @Composable
@@ -141,7 +178,7 @@ internal fun EmptyState(
 
 // Previews
 
-private val samplePodcast = Podcast(id = 1, feedUrl = "https://example.com/feed", title = "The Daily Thing", author = "Some Network")
+internal val samplePodcast = Podcast(id = 1, feedUrl = "https://example.com/feed", title = "The Daily Thing", author = "Some Network")
 
 internal val previewEpisodeRows =
   List(4) { i ->
@@ -176,5 +213,7 @@ private fun LibraryPreview() =
       folders = listOf(Folder(id = 1, name = "News"), Folder(id = 2, name = "Comedy")),
       podcasts = listOf(samplePodcast.copy(folderId = 1), samplePodcast.copy(id = 2, title = "Unfiled Show", folderId = null)),
       onPodcastClick = {},
+      onFolderClick = {},
+      onNewFolder = {},
     )
   }

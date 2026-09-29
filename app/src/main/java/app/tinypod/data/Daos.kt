@@ -16,10 +16,14 @@ interface FolderDao {
   @Query("SELECT * FROM Folder ORDER BY sortOrder, name COLLATE NOCASE")
   fun observeAll(): Flow<List<Folder>>
 
+  @Query("SELECT * FROM Folder WHERE id = :id")
+  fun observe(id: Long): Flow<Folder?>
+
   @Insert suspend fun insert(folder: Folder): Long
 
   @Update suspend fun update(folder: Folder)
 
+  /** Its podcasts become unfiled (the foreign key is ON DELETE SET NULL). */
   @Delete suspend fun delete(folder: Folder)
 }
 
