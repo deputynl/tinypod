@@ -12,9 +12,14 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionError
+import com.google.common.collect.ImmutableList
 import app.tinypod.TinypodApp
 import app.tinypod.data.EpisodeWithPodcast
 import java.io.File
@@ -29,20 +34,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
- * Owns the ExoPlayer and exposes it through a MediaSession, which gives background playback,
- * notification/lock-screen/Bluetooth controls, and (later) Android Auto.
+ * Owns the ExoPlayer and exposes it through a MediaLibrarySession, which gives background playback,
+ * notification/lock-screen/Bluetooth controls, and Android Auto (browsing via [BrowseTree]).
  *
  * The player holds one episode at a time. Media items coming from controllers carry only the
- * episode id as mediaId; they're resolved here from the database, so the UI (and later Android
- * Auto) never needs to know about URLs or saved positions. When an episode finishes, it's marked
+ * episode id as mediaId; they're resolved here from the database, so the UI and Android
+ * Auto never need to know about URLs or saved positions. When an episode finishes, it's marked
  * played and the next one is taken from the queue.
  */
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val db by lazy { (application as TinypodApp).database }
   private val prefs by lazy { getSharedPreferences("player", Context.MODE_PRIVATE) }
   private lateinit var player: ExoPlayer
-  private var session: MediaSession? = null
+  private var session: MediaLibrarySession? = null
+  private val tree by lazy { BrowseTree(db, ArtworkProvider::uriFor) }
 
   /** Whether the current item has played at all since it was loaded; until then there's no progress to save. */
   private var playedSinceLoad = false
@@ -65,7 +71,7 @@ class PlaybackService : MediaSessionService() {
         .build()
     player.playbackParameters = PlaybackParameters(prefs.getFloat(KEY_SPEED, 1f))
     player.addListener(PlayerListener())
-    session = MediaSession.Builder(this, player).setCallback(SessionCallback()).build()
+    session = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
 
     scope.launch { restoreLastEpisode() }
     scope.launch {
@@ -76,7 +82,7 @@ class PlaybackService : MediaSessionService() {
     }
   }
 
-  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
   override fun onTaskRemoved(rootIntent: Intent?) {
     // Swiping the app away while paused stops the service; while playing, keep going.
@@ -174,8 +180,31 @@ class PlaybackService : MediaSessionService() {
     }
   }
 
-  private inner class SessionCallback : MediaSession.Callback {
-    /** Controllers send bare episode ids; turn them into playable items starting at the saved position. */
+  private inner class LibraryCallback : MediaLibrarySession.Callback {
+    override fun onGetLibraryRoot(session: MediaLibrarySession, browser: MediaSession.ControllerInfo, params: LibraryParams?) =
+      scope.future { LibraryResult.ofItem(tree.root, params) }
+
+    override fun onGetChildren(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      parentId: String,
+      page: Int,
+      pageSize: Int,
+      params: LibraryParams?,
+    ) =
+      scope.future {
+        val children = tree.children(parentId) ?: return@future LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+        val from = (page.toLong() * pageSize).coerceAtMost(children.size.toLong()).toInt()
+        LibraryResult.ofItemList(ImmutableList.copyOf(children.subList(from, (from + pageSize).coerceAtMost(children.size))), params)
+      }
+
+    override fun onGetItem(session: MediaLibrarySession, browser: MediaSession.ControllerInfo, mediaId: String) =
+      scope.future { tree.item(mediaId)?.let { LibraryResult.ofItem(it, null) } ?: LibraryResult.ofError(SessionError.ERROR_BAD_VALUE) }
+
+    /**
+     * Controllers send bare episode ids; turn them into playable items starting at the saved position.
+     * A request without one (a voice search, "play Tinypod") picks an episode via [BrowseTree.forVoiceQuery].
+     */
     override fun onSetMediaItems(
       mediaSession: MediaSession,
       controller: MediaSession.ControllerInfo,
@@ -185,7 +214,10 @@ class PlaybackService : MediaSessionService() {
     ) =
       scope.future {
         savePosition() // keep the progress of whatever was playing before
-        val rows = mediaItems.mapNotNull { it.mediaId.toLongOrNull()?.let { id -> db.episodeDao().getWithPodcast(id) } }
+        val rows =
+          mediaItems.mapNotNull { it.mediaId.toLongOrNull()?.let { id -> db.episodeDao().getWithPodcast(id) } }.ifEmpty {
+            listOfNotNull(tree.forVoiceQuery(mediaItems.firstOrNull()?.requestMetadata?.searchQuery))
+          }
         rows.forEach { db.queueDao().remove(it.episode.id) } // playing something takes it out of "up next"
         val index = startIndex.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
         val position = if (startPositionMs == C.TIME_UNSET) rows.getOrNull(index)?.episode?.positionMs ?: 0 else startPositionMs
