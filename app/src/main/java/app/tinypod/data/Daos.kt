@@ -34,6 +34,9 @@ interface PodcastDao {
   @Query("SELECT * FROM Podcast WHERE folderId IS NULL ORDER BY title COLLATE NOCASE")
   fun observeUnfiled(): Flow<List<Podcast>>
 
+  @Query("SELECT * FROM Podcast WHERE id = :id")
+  fun observe(id: Long): Flow<Podcast?>
+
   @Query("SELECT * FROM Podcast")
   suspend fun getAll(): List<Podcast>
 
@@ -44,6 +47,12 @@ interface PodcastDao {
 
   @Update suspend fun update(podcast: Podcast)
 
+  @Query(
+    """UPDATE Podcast SET title = :title, author = :author, description = :description,
+       artworkUrl = COALESCE(:artworkUrl, artworkUrl), lastFetchedAt = :fetchedAt WHERE id = :id"""
+  )
+  suspend fun updateFeedInfo(id: Long, title: String, author: String?, description: String?, artworkUrl: String?, fetchedAt: Long)
+
   @Query("UPDATE Podcast SET folderId = :folderId WHERE id = :podcastId")
   suspend fun setFolder(podcastId: Long, folderId: Long?)
 
@@ -52,7 +61,7 @@ interface PodcastDao {
 
 @Dao
 interface EpisodeDao {
-  @Query("$EPISODE_ROW WHERE e.isPlayed = 0 ORDER BY e.publishedAt DESC")
+  @Query("$EPISODE_ROW WHERE e.isPlayed = 0 AND e.publishedAt >= p.newSince ORDER BY e.publishedAt DESC")
   fun observeNew(): Flow<List<EpisodeWithPodcast>>
 
   @Query("$EPISODE_ROW WHERE e.podcastId = :podcastId ORDER BY e.publishedAt DESC")
@@ -73,6 +82,22 @@ interface EpisodeDao {
   /** Inserts episodes not seen before; existing ones (same podcast + guid) keep their playback state. */
   @Insert(onConflict = OnConflictStrategy.IGNORE)
   suspend fun insertNew(episodes: List<Episode>): List<Long>
+
+  @Query(
+    """UPDATE Episode SET title = :title, audioUrl = :audioUrl,
+       durationMs = COALESCE(:durationMs, durationMs), description = :description
+       WHERE podcastId = :podcastId AND guid = :guid"""
+  )
+  suspend fun updateFeedFields(podcastId: Long, guid: String, title: String, audioUrl: String, durationMs: Long?, description: String?)
+
+  /** Adds new episodes and refreshes feed-provided fields of known ones, leaving playback state alone. */
+  @Transaction
+  suspend fun upsertFromFeed(episodes: List<Episode>) {
+    val ids = insertNew(episodes)
+    episodes.forEachIndexed { i, e ->
+      if (ids[i] == -1L) updateFeedFields(e.podcastId, e.guid, e.title, e.audioUrl, e.durationMs, e.description)
+    }
+  }
 
   @Query("UPDATE Episode SET positionMs = :positionMs, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun savePosition(id: Long, positionMs: Long, playedAt: Long)

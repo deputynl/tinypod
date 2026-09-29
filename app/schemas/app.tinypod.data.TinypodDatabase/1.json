@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "684ff038bdddea2bdd5634cc666a7130",
+    "identityHash": "32dd7caad6dfba05a3d96b926bfbc416",
     "entities": [
       {
         "tableName": "Folder",
@@ -36,7 +36,7 @@
       },
       {
         "tableName": "Podcast",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `feedUrl` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT, `description` TEXT, `artworkUrl` TEXT, `folderId` INTEGER, `lastFetchedAt` INTEGER, FOREIGN KEY(`folderId`) REFERENCES `Folder`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `feedUrl` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT, `description` TEXT, `artworkUrl` TEXT, `folderId` INTEGER, `lastFetchedAt` INTEGER, `newSince` INTEGER NOT NULL, FOREIGN KEY(`folderId`) REFERENCES `Folder`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
         "fields": [
           {
             "fieldPath": "id",
@@ -80,6 +80,12 @@
             "fieldPath": "lastFetchedAt",
             "columnName": "lastFetchedAt",
             "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "newSince",
+            "columnName": "newSince",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -285,7 +291,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '684ff038bdddea2bdd5634cc666a7130')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '32dd7caad6dfba05a3d96b926bfbc416')"
     ]
   }
 }

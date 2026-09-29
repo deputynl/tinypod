@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Sample &amp; Show</title>
+    <atom:link href="https://example.com/feed.xml" rel="self" type="application/rss+xml"/>
+    <description><![CDATA[A <b>sample</b> podcast.]]></description>
+    <itunes:author>Sample Network</itunes:author>
+    <itunes:image href="https://example.com/art.jpg"/>
+    <image>
+      <url>https://example.com/rss-art.jpg</url>
+      <title>Should not replace the channel title</title>
+    </image>
+    <item>
+      <title>Episode 2: Namespaced things</title>
+      <guid isPermaLink="false">ep-2</guid>
+      <pubDate>Tue, 22 Sep 2026 06:00:00 +0000</pubDate>
+      <enclosure url="https://cdn.example.com/ep2.mp3" length="123" type="audio/mpeg"/>
+      <itunes:duration>01:02:03</itunes:duration>
+      <itunes:image href="https://example.com/ep2.jpg"/>
+      <description>Plain description</description>
+      <content:encoded><![CDATA[<p>Rich show notes</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Episode 1</title>
+      <pubDate>Mon, 7 Sep 2026 09:30:00 EST</pubDate>
+      <enclosure url=" https://cdn.example.com/ep1.mp3 " type="audio/mpeg"/>
+      <itunes:duration>2710</itunes:duration>
+      <itunes:summary>Summary only</itunes:summary>
+    </item>
+    <item>
+      <title>Trailer without audio</title>
+      <guid>no-audio</guid>
+    </item>
+  </channel>
+</rss>

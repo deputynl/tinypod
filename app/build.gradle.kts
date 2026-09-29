@@ -82,6 +82,9 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   ksp(libs.androidx.room.compiler)
 
+  // Background feed refresh
+  implementation(libs.androidx.work.runtime.ktx)
+
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
@@ -91,6 +94,9 @@ dependencies {
   // Local tests: jUnit, coroutines, Android runner
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
+  // Real implementations of the XmlPullParser / org.json APIs that android.jar only stubs on the JVM
+  testImplementation(libs.kxml2)
+  testImplementation(libs.org.json)
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)

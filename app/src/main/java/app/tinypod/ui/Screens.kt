@@ -1,16 +1,31 @@
 package app.tinypod.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Button
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -28,16 +43,42 @@ import java.util.Date
 // Stateful entry points, wired to the ViewModel.
 
 @Composable
-fun NewEpisodesScreen(vm: TabsViewModel) {
+fun NewEpisodesScreen(vm: TabsViewModel, onAddPodcast: () -> Unit) {
   val rows by vm.newEpisodes.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "No new episodes.\nSubscribe to a podcast to get started.")
+  val podcasts by vm.podcasts.collectAsStateWithLifecycle()
+  val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+  val failures by vm.refreshFailures.collectAsStateWithLifecycle()
+  val snackbar = remember { SnackbarHostState() }
+
+  LaunchedEffect(failures) {
+    if (failures > 0) {
+      snackbar.showSnackbar(if (failures == 1) "1 feed couldn't be refreshed" else "$failures feeds couldn't be refreshed")
+      vm.refreshFailuresShown()
+    }
+  }
+
+  Box(Modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refresh() }) {
+      if (podcasts.isEmpty()) {
+        EmptyState("No podcasts yet.", action = "Add a podcast", onAction = onAddPodcast, scrollable = true)
+      } else {
+        EpisodeList(rows, empty = "You're all caught up.", scrollableEmpty = true)
+      }
+    }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+  }
 }
 
 @Composable
-fun LibraryScreen(vm: TabsViewModel) {
+fun LibraryScreen(vm: TabsViewModel, onPodcastClick: (Long) -> Unit, onAddPodcast: () -> Unit) {
   val folders by vm.folders.collectAsStateWithLifecycle()
   val podcasts by vm.podcasts.collectAsStateWithLifecycle()
-  LibraryContent(folders, podcasts)
+  Box(Modifier.fillMaxSize()) {
+    LibraryContent(folders, podcasts, onPodcastClick)
+    FloatingActionButton(onClick = onAddPodcast, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
+      Icon(Icons.Filled.Add, contentDescription = "Add podcast")
+    }
+  }
 }
 
 @Composable
@@ -61,14 +102,20 @@ fun DownloadsScreen(vm: TabsViewModel) {
 // Stateless content, previewable without a database.
 
 @Composable
-fun EpisodeList(rows: List<EpisodeWithPodcast>, empty: String, modifier: Modifier = Modifier) {
-  if (rows.isEmpty()) return EmptyState(empty, modifier)
+fun EpisodeList(
+  rows: List<EpisodeWithPodcast>,
+  empty: String,
+  modifier: Modifier = Modifier,
+  showPodcast: Boolean = true,
+  scrollableEmpty: Boolean = false,
+) {
+  if (rows.isEmpty()) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
   LazyColumn(modifier.fillMaxSize()) {
     items(rows, key = { it.episode.id }) { row ->
       ListItem(
-        overlineContent = { Text(row.podcastTitle, maxLines = 1) },
+        overlineContent = if (showPodcast) ({ Text(row.podcastTitle, maxLines = 1) }) else null,
         headlineContent = { Text(row.episode.title, maxLines = 2) },
-        supportingContent = { Text(DateFormat.getDateInstance().format(Date(row.episode.publishedAt))) },
+        supportingContent = { Text(episodeMeta(row.episode)) },
       )
       HorizontalDivider()
     }
@@ -76,8 +123,8 @@ fun EpisodeList(rows: List<EpisodeWithPodcast>, empty: String, modifier: Modifie
 }
 
 @Composable
-fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, modifier: Modifier = Modifier) {
-  if (folders.isEmpty() && podcasts.isEmpty()) return EmptyState("No podcasts yet.", modifier)
+fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, onPodcastClick: (Long) -> Unit, modifier: Modifier = Modifier) {
+  if (folders.isEmpty() && podcasts.isEmpty()) return EmptyState("No podcasts yet.\nTap + to add one.", modifier)
   LazyColumn(modifier.fillMaxSize()) {
     items(folders, key = { "f${it.id}" }) { folder ->
       val count = podcasts.count { it.folderId == folder.id }
@@ -85,16 +132,37 @@ fun LibraryContent(folders: List<Folder>, podcasts: List<Podcast>, modifier: Mod
       HorizontalDivider()
     }
     items(podcasts.filter { it.folderId == null }, key = { "p${it.id}" }) { podcast ->
-      ListItem(headlineContent = { Text(podcast.title) }, supportingContent = podcast.author?.let { { Text(it) } })
+      ListItem(
+        modifier = Modifier.clickable { onPodcastClick(podcast.id) },
+        headlineContent = { Text(podcast.title) },
+        supportingContent = podcast.author?.let { { Text(it) } },
+      )
       HorizontalDivider()
     }
   }
 }
 
+private fun episodeMeta(e: Episode): String {
+  val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.publishedAt))
+  val minutes = e.durationMs?.let { (it + 30_000) / 60_000 }
+  return if (minutes != null) "$date · $minutes min" else date
+}
+
 @Composable
-private fun EmptyState(text: String, modifier: Modifier = Modifier) {
-  Box(modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-    Text(text, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+private fun EmptyState(
+  text: String,
+  modifier: Modifier = Modifier,
+  action: String? = null,
+  onAction: () -> Unit = {},
+  scrollable: Boolean = false,
+) {
+  // Pull-to-refresh only reacts to scrollable content, hence the optional verticalScroll.
+  val scroll = if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier
+  Box(modifier.fillMaxSize().then(scroll).padding(32.dp), contentAlignment = Alignment.Center) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text(text, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+      if (action != null) Button(onClick = onAction) { Text(action) }
+    }
   }
 }
 
@@ -102,10 +170,18 @@ private fun EmptyState(text: String, modifier: Modifier = Modifier) {
 
 private val samplePodcast = Podcast(id = 1, feedUrl = "https://example.com/feed", title = "The Daily Thing", author = "Some Network")
 
-private val sampleRows =
+internal val previewEpisodeRows =
   List(4) { i ->
     EpisodeWithPodcast(
-      Episode(id = i.toLong(), podcastId = 1, guid = "g$i", title = "Episode ${40 - i}: A reasonably long episode title", audioUrl = "", publishedAt = 1_790_000_000_000 - i * 86_400_000L),
+      Episode(
+        id = i.toLong(),
+        podcastId = 1,
+        guid = "g$i",
+        title = "Episode ${40 - i}: A reasonably long episode title",
+        audioUrl = "",
+        publishedAt = 1_790_000_000_000 - i * 86_400_000L,
+        durationMs = 2_400_000L + i * 300_000L,
+      ),
       podcastTitle = samplePodcast.title,
       artworkUrl = null,
     )
@@ -113,11 +189,11 @@ private val sampleRows =
 
 @Preview(showBackground = true)
 @Composable
-private fun EpisodeListPreview() = TinypodTheme { EpisodeList(sampleRows, empty = "") }
+private fun EpisodeListPreview() = TinypodTheme { EpisodeList(previewEpisodeRows, empty = "") }
 
 @Preview(showBackground = true)
 @Composable
-private fun EpisodeListEmptyPreview() = TinypodTheme { EpisodeList(emptyList(), empty = "No new episodes.\nSubscribe to a podcast to get started.") }
+private fun EmptyWithActionPreview() = TinypodTheme { EmptyState("No podcasts yet.", action = "Add a podcast") }
 
 @Preview(showBackground = true)
 @Composable
@@ -126,5 +202,6 @@ private fun LibraryPreview() =
     LibraryContent(
       folders = listOf(Folder(id = 1, name = "News"), Folder(id = 2, name = "Comedy")),
       podcasts = listOf(samplePodcast.copy(folderId = 1), samplePodcast.copy(id = 2, title = "Unfiled Show", folderId = null)),
+      onPodcastClick = {},
     )
   }

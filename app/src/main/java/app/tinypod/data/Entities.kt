@@ -29,6 +29,11 @@ data class Podcast(
   val artworkUrl: String? = null,
   val folderId: Long? = null,
   val lastFetchedAt: Long? = null,
+  /**
+   * Only episodes published at or after this instant count as "new". Set on subscribe to the newest
+   * episode's date, so a show's back catalogue doesn't flood the New Episodes list.
+   */
+  val newSince: Long = 0,
 )
 
 /**

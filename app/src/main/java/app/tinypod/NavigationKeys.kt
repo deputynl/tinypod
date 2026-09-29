@@ -20,6 +20,10 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object Downloads : NavKey
 
+@Serializable data object AddPodcast : NavKey
+
+@Serializable data class PodcastDetail(val podcastId: Long) : NavKey
+
 enum class Tab(val key: NavKey, val label: String, val icon: ImageVector) {
   New(NewEpisodes, "New", Icons.Filled.NewReleases),
   Library(app.tinypod.Library, "Library", Icons.Filled.VideoLibrary),
