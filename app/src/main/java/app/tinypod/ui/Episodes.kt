@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,6 +58,8 @@ sealed interface EpisodeEvent {
   data class RemoveFromQueue(override val episodeId: Long) : EpisodeEvent
 
   data class SetPlayed(override val episodeId: Long, val played: Boolean) : EpisodeEvent
+
+  data class RemoveFromHistory(override val episodeId: Long) : EpisodeEvent
 }
 
 /** Handles [EpisodeEvent]s from any episode list: playback goes to the player, the rest to the database. */
@@ -72,6 +76,7 @@ fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
         is EpisodeEvent.AddToQueue -> scope.launch { actions.addToQueue(event.episodeId) }
         is EpisodeEvent.RemoveFromQueue -> scope.launch { actions.removeFromQueue(event.episodeId) }
         is EpisodeEvent.SetPlayed -> scope.launch { actions.setPlayed(event.episodeId, event.played) }
+        is EpisodeEvent.RemoveFromHistory -> scope.launch { actions.removeFromHistory(event.episodeId) }
       }
     }
   }
@@ -91,21 +96,49 @@ fun EpisodeList(
   modifier: Modifier = Modifier,
   showPodcast: Boolean = true,
   inQueue: Boolean = false,
+  inHistory: Boolean = false,
   scrollableEmpty: Boolean = false,
   currentId: Long? = null,
+  /** Groups consecutive rows under a sticky header with this label (rows must already be in section order). */
+  sectionOf: ((EpisodeWithPodcast) -> String)? = null,
   onEvent: (EpisodeEvent) -> Unit = {},
 ) {
   if (rows.isEmpty()) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
   LazyColumn(modifier.fillMaxSize()) {
-    items(rows, key = { it.episode.id }) { row ->
-      EpisodeRow(row, showPodcast, inQueue, isCurrent = row.episode.id == currentId, onEvent)
-      HorizontalDivider()
+    var section: String? = null
+    rows.forEach { row ->
+      val rowSection = sectionOf?.invoke(row)
+      if (rowSection != null && rowSection != section) {
+        section = rowSection
+        stickyHeader(key = "section-$rowSection") { SectionHeader(rowSection) }
+      }
+      item(key = row.episode.id) {
+        EpisodeRow(row, showPodcast, inQueue, inHistory, isCurrent = row.episode.id == currentId, onEvent)
+        HorizontalDivider()
+      }
     }
   }
 }
 
 @Composable
-private fun EpisodeRow(row: EpisodeWithPodcast, showPodcast: Boolean, inQueue: Boolean, isCurrent: Boolean, onEvent: (EpisodeEvent) -> Unit) {
+private fun SectionHeader(label: String) {
+  Text(
+    label,
+    style = MaterialTheme.typography.titleSmall,
+    color = MaterialTheme.colorScheme.primary,
+    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 8.dp),
+  )
+}
+
+@Composable
+private fun EpisodeRow(
+  row: EpisodeWithPodcast,
+  showPodcast: Boolean,
+  inQueue: Boolean,
+  inHistory: Boolean,
+  isCurrent: Boolean,
+  onEvent: (EpisodeEvent) -> Unit,
+) {
   val e = row.episode
   var menuOpen by remember { mutableStateOf(false) }
   ListItem(
@@ -136,6 +169,7 @@ private fun EpisodeRow(row: EpisodeWithPodcast, showPodcast: Boolean, inQueue: B
             else DropdownMenuItem(text = { Text("Add to queue") }, onClick = { pick(EpisodeEvent.AddToQueue(e.id)) })
             if (e.isPlayed) DropdownMenuItem(text = { Text("Mark as unplayed") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, false)) })
             else DropdownMenuItem(text = { Text("Mark as played") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, true)) })
+            if (inHistory) DropdownMenuItem(text = { Text("Remove from history") }, onClick = { pick(EpisodeEvent.RemoveFromHistory(e.id)) })
           }
         }
       }

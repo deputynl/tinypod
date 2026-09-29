@@ -101,12 +101,6 @@ fun QueueScreen(vm: TabsViewModel) {
 }
 
 @Composable
-fun HistoryScreen(vm: TabsViewModel) {
-  val rows by vm.history.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "Nothing played yet.", currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
-}
-
-@Composable
 fun DownloadsScreen(vm: TabsViewModel) {
   val rows by vm.downloads.collectAsStateWithLifecycle()
   EpisodeList(rows, empty = "No downloaded episodes.", currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())

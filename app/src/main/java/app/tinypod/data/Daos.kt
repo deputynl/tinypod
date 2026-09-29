@@ -120,6 +120,10 @@ interface EpisodeDao {
   @Query("UPDATE Episode SET isPlayed = :played, positionMs = 0 WHERE id = :id")
   suspend fun setPlayed(id: Long, played: Boolean)
 
+  /** Hides an episode from History; its position is kept, so it still resumes where it was. */
+  @Query("UPDATE Episode SET lastPlayedAt = NULL WHERE id = :id")
+  suspend fun removeFromHistory(id: Long)
+
   @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun markFinished(id: Long, playedAt: Long)
 
