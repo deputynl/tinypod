@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -122,10 +124,11 @@ fun EpisodeList(
   currentId: Long? = null,
   /** Groups consecutive rows under a sticky header with this label (rows must already be in section order). */
   sectionOf: ((EpisodeWithPodcast) -> String)? = null,
+  listState: LazyListState = rememberLazyListState(),
   onEvent: (EpisodeEvent) -> Unit = {},
 ) {
   if (rows.isEmpty()) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
-  LazyColumn(modifier.fillMaxSize()) {
+  LazyColumn(modifier.fillMaxSize(), state = listState) {
     var section: String? = null
     rows.forEach { row ->
       val rowSection = sectionOf?.invoke(row)
