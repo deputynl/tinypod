@@ -94,3 +94,6 @@ data class EpisodeWithPodcast(
 
 /** An episode being downloaded, and its DownloadManager id. */
 data class ActiveDownload(val episodeId: Long, val downloadId: Long)
+
+/** A number per podcast, such as its count of new episodes. */
+data class PodcastCount(val podcastId: Long, val count: Int)

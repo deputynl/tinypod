@@ -78,6 +78,13 @@ interface EpisodeDao {
   @Query("$EPISODE_ROW WHERE e.localFilePath IS NOT NULL OR e.downloadId IS NOT NULL ORDER BY e.downloadId IS NULL, e.publishedAt DESC")
   fun observeDownloads(): Flow<List<EpisodeWithPodcast>>
 
+  /** Per podcast, how many of its episodes the New tab lists (unplayed, published since subscribing). */
+  @Query(
+    """SELECT e.podcastId AS podcastId, COUNT(*) AS count FROM Episode e JOIN Podcast p ON p.id = e.podcastId
+       WHERE e.isPlayed = 0 AND e.publishedAt >= p.newSince GROUP BY e.podcastId"""
+  )
+  fun observeNewCounts(): Flow<List<PodcastCount>>
+
   @Query("SELECT id AS episodeId, downloadId FROM Episode WHERE downloadId IS NOT NULL")
   fun observeActiveDownloads(): Flow<List<ActiveDownload>>
 

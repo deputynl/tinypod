@@ -48,9 +48,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.tinypod.TinypodApp
 import app.tinypod.data.EpisodeWithPodcast
-import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
-import app.tinypod.data.PodcastRepository
 import app.tinypod.theme.ArtworkTheme
 import app.tinypod.theme.TinypodTheme
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +61,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class PodcastViewModel(private val podcastId: Long, app: TinypodApp) : ViewModel() {
-  private val repository: PodcastRepository = app.repository
+  private val actions = app.libraryActions
   private val podcastDao = app.database.podcastDao()
   private val folderDao = app.database.folderDao()
   val podcast = podcastDao.observe(podcastId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -79,15 +77,15 @@ class PodcastViewModel(private val podcastId: Long, app: TinypodApp) : ViewModel
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
   fun moveToFolder(folderId: Long?) {
-    viewModelScope.launch { podcastDao.setFolder(podcastId, folderId) }
+    viewModelScope.launch { actions.moveToFolder(podcastId, folderId) }
   }
 
   fun moveToNewFolder(name: String) {
-    viewModelScope.launch { podcastDao.setFolder(podcastId, folderDao.insert(Folder(name = name.trim()))) }
+    viewModelScope.launch { actions.moveToNewFolder(podcastId, name) }
   }
 
   suspend fun unsubscribe() {
-    podcast.value?.let { repository.unsubscribe(it) }
+    podcast.value?.let { actions.unsubscribe(it) }
   }
 
   companion object {

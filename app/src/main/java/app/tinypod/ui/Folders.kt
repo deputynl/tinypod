@@ -3,11 +3,8 @@ package app.tinypod.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -22,7 +19,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,23 +41,18 @@ import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
 import app.tinypod.theme.TinypodTheme
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
-class FolderViewModel(private val folderId: Long, app: TinypodApp) : ViewModel() {
+class FolderViewModel(folderId: Long, app: TinypodApp) : ViewModel() {
   private val folderDao = app.database.folderDao()
   val folder = folderDao.observe(folderId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
   val folders = folderDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
   val podcasts =
     app.database.podcastDao().observeInFolder(folderId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-  fun rename(name: String) {
-    viewModelScope.launch { folder.value?.let { folderDao.update(it.copy(name = name.trim())) } }
-  }
-
-  suspend fun delete() {
-    folder.value?.let { folderDao.delete(it) }
-  }
+  val newCounts =
+    app.database.episodeDao().observeNewCounts().map { list -> list.associate { it.podcastId to it.count } }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
   companion object {
     fun factory(folderId: Long) = viewModelFactory { initializer { FolderViewModel(folderId, this[APPLICATION_KEY] as TinypodApp) } }
@@ -74,72 +65,51 @@ fun FolderScreen(folderId: Long, onPodcastClick: (Long) -> Unit, onDeleted: () -
   val folder by vm.folder.collectAsStateWithLifecycle()
   val folders by vm.folders.collectAsStateWithLifecycle()
   val podcasts by vm.podcasts.collectAsStateWithLifecycle()
-  val scope = rememberCoroutineScope()
-  var renaming by remember { mutableStateOf(false) }
-  var confirmDelete by remember { mutableStateOf(false) }
+  val newCounts by vm.newCounts.collectAsStateWithLifecycle()
+  var dialog by remember { mutableStateOf<LibraryDialog?>(null) }
 
-  FolderContent(folder, podcasts, onPodcastClick, onRename = { renaming = true }, onDelete = { confirmDelete = true })
-
-  val current = folder ?: return
-  if (renaming) {
-    FolderNameDialog(
-      title = "Rename folder",
-      confirm = "Rename",
-      folders = folders,
-      initial = current.name,
-      editing = current,
-      onConfirm = { vm.rename(it); renaming = false },
-      onDismiss = { renaming = false },
-    )
-  }
-  if (confirmDelete) {
-    AlertDialog(
-      onDismissRequest = { confirmDelete = false },
-      title = { Text("Delete “${current.name}”?") },
-      text = { Text("Its podcasts stay subscribed and move back to the main Library list.") },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            confirmDelete = false
-            scope.launch {
-              vm.delete()
-              onDeleted()
-            }
-          }
-        ) {
-          Text("Delete")
-        }
-      },
-      dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-    )
-  }
+  FolderContent(folder, podcasts, newCounts, onPodcastClick, onDialog = { dialog = it })
+  LibraryDialogs(dialog, folders, onDialog = { dialog = it }, onFolderDeleted = onDeleted)
 }
 
 @Composable
 fun FolderContent(
   folder: Folder?,
   podcasts: List<Podcast>,
+  newCounts: Map<Long, Int>,
   onPodcastClick: (Long) -> Unit,
-  onRename: () -> Unit,
-  onDelete: () -> Unit,
+  onDialog: (LibraryDialog) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Column(modifier.fillMaxSize()) {
-    if (folder != null) {
-      Column(Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp)) {
-        Text(folder.name, style = MaterialTheme.typography.headlineSmall)
+  if (folder == null) return
+  PodcastGrid(
+    folders = emptyList(),
+    podcasts = podcasts,
+    allPodcasts = podcasts,
+    newCounts = newCounts,
+    onPodcastClick = onPodcastClick,
+    onFolderClick = {},
+    onDialog = onDialog,
+    modifier = modifier,
+    bottomPadding = 16.dp,
+    header = {
+      Column {
+        Text(folder.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 8.dp))
         Row {
-          TextButton(onClick = onRename, contentPadding = PaddingValues(0.dp)) { Text("Rename") }
-          TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 16.dp)) { Text("Delete") }
+          TextButton(onClick = { onDialog(LibraryDialog.RenameFolder(folder)) }, contentPadding = PaddingValues(0.dp)) { Text("Rename") }
+          TextButton(onClick = { onDialog(LibraryDialog.DeleteFolder(folder)) }, contentPadding = PaddingValues(horizontal = 16.dp)) { Text("Delete") }
+        }
+        if (podcasts.isEmpty()) {
+          Text(
+            "No podcasts in this folder yet. Long-press a podcast in the Library, or use the folder button on its page, to file it here.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 16.dp),
+          )
         }
       }
-    }
-    if (podcasts.isEmpty()) {
-      EmptyState("No podcasts in this folder.\nUse “Folder” on a podcast's page to file it here.")
-    } else {
-      LazyColumn(Modifier.fillMaxSize()) { items(podcasts, key = { it.id }) { PodcastRow(it, onPodcastClick) } }
-    }
-  }
+    },
+  )
 }
 
 /** Why [name] can't be used for a folder, or null if it can. [editing] is the folder being renamed, if any. */
@@ -230,13 +200,13 @@ private fun FolderOption(name: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun FolderPreview() =
   TinypodTheme {
-    FolderContent(Folder(id = 1, name = "News"), listOf(samplePodcast), onPodcastClick = {}, onRename = {}, onDelete = {})
+    FolderContent(Folder(id = 1, name = "News"), listOf(samplePodcast), newCounts = mapOf(1L to 2), onPodcastClick = {}, onDialog = {})
   }
 
 @Preview(showBackground = true)
 @Composable
 private fun EmptyFolderPreview() =
-  TinypodTheme { FolderContent(Folder(id = 1, name = "Comedy"), emptyList(), onPodcastClick = {}, onRename = {}, onDelete = {}) }
+  TinypodTheme { FolderContent(Folder(id = 1, name = "Comedy"), emptyList(), newCounts = emptyMap(), onPodcastClick = {}, onDialog = {}) }
 
 @Preview
 @Composable

@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.tinypod.TinypodApp
-import app.tinypod.data.Folder
 import app.tinypod.data.PodcastRepository
 import app.tinypod.data.TinypodDatabase
 import java.io.File
@@ -27,6 +26,11 @@ class TabsViewModel(private val db: TinypodDatabase, private val repository: Pod
   val newEpisodes = db.episodeDao().observeNew().state()
   val folders = db.folderDao().observeAll().state()
   val podcasts = db.podcastDao().observeAll().state()
+
+  /** New episodes per podcast id, for the library's badges. */
+  val newCounts: StateFlow<Map<Long, Int>> =
+    db.episodeDao().observeNewCounts().map { list -> list.associate { it.podcastId to it.count } }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
   val queue = db.queueDao().observe().state()
   val history = db.episodeDao().observeHistory().state()
   val downloads = db.episodeDao().observeDownloads().state()
@@ -61,10 +65,6 @@ class TabsViewModel(private val db: TinypodDatabase, private val repository: Pod
         _refreshing.value = false
       }
     }
-  }
-
-  fun createFolder(name: String) {
-    viewModelScope.launch { db.folderDao().insert(Folder(name = name.trim())) }
   }
 
   fun refreshFailuresShown() {
