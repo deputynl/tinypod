@@ -31,8 +31,10 @@ data class Podcast(
   val folderId: Long? = null,
   val lastFetchedAt: Long? = null,
   /**
-   * Only episodes published at or after this instant count as "new". Set on subscribe to the newest
-   * episode's date, so a show's back catalogue doesn't flood the New Episodes list.
+   * Only unplayed episodes published at or after this instant count as "new" (the New tab and the
+   * library badges). Set on subscribe to the newest episode's date, so a show's back catalogue doesn't
+   * flood the list, and moved past each episode you finish: only episodes newer than the latest one
+   * you've listened to are new.
    */
   val newSince: Long = 0,
 )

@@ -138,14 +138,38 @@ interface EpisodeDao {
 
   /** Marks an episode (un)played; either way it starts from the beginning next time. */
   @Query("UPDATE Episode SET isPlayed = :played, positionMs = 0 WHERE id = :id")
-  suspend fun setPlayed(id: Long, played: Boolean)
+  suspend fun setPlayedState(id: Long, played: Boolean)
+
+  /** Marks an episode (un)played; marking it played counts as finishing it (see [advanceNewSince]). */
+  @Transaction
+  suspend fun setPlayed(id: Long, played: Boolean) {
+    setPlayedState(id, played)
+    if (played) advanceNewSince(id)
+  }
 
   /** Hides an episode from History; its position is kept, so it still resumes where it was. */
   @Query("UPDATE Episode SET lastPlayedAt = NULL WHERE id = :id")
   suspend fun removeFromHistory(id: Long)
 
   @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0, lastPlayedAt = :playedAt WHERE id = :id")
-  suspend fun markFinished(id: Long, playedAt: Long)
+  suspend fun markFinishedState(id: Long, playedAt: Long)
+
+  /** Records that an episode was listened to the end. */
+  @Transaction
+  suspend fun markFinished(id: Long, playedAt: Long) {
+    markFinishedState(id, playedAt)
+    advanceNewSince(id)
+  }
+
+  /**
+   * Having finished an episode, only later ones are new: moves its podcast's [Podcast.newSince] past it
+   * (never backwards, so finishing an older episode changes nothing).
+   */
+  @Query(
+    """UPDATE Podcast SET newSince = MAX(newSince, (SELECT publishedAt + 1 FROM Episode WHERE id = :episodeId))
+       WHERE id = (SELECT podcastId FROM Episode WHERE id = :episodeId)"""
+  )
+  suspend fun advanceNewSince(episodeId: Long)
 
   @Query("UPDATE Episode SET downloadId = :downloadId WHERE id = :id")
   suspend fun setDownloadId(id: Long, downloadId: Long?)
