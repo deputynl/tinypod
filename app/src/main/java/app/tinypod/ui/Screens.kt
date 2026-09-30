@@ -30,6 +30,7 @@ import app.tinypod.data.Episode
 import app.tinypod.data.EpisodeWithPodcast
 import app.tinypod.data.Podcast
 import app.tinypod.theme.TinypodTheme
+import kotlinx.coroutines.flow.flowOf
 
 // Stateful entry points, wired to the ViewModel.
 
@@ -63,7 +64,18 @@ fun NewEpisodesScreen(vm: TabsViewModel, onAddPodcast: () -> Unit) {
 @Composable
 fun QueueScreen(vm: TabsViewModel) {
   val rows by vm.queue.collectAsStateWithLifecycle()
-  EpisodeList(rows, empty = "Your queue is empty.", inQueue = true, currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
+  val currentId = currentEpisodeId()
+  // What's playing is shown in its place in the queue, or above it when it isn't queued.
+  val outside = currentId?.takeIf { id -> rows.none { it.episode.id == id } }
+  val playing by remember(outside) { outside?.let(vm::episode) ?: flowOf(null) }.collectAsStateWithLifecycle(null)
+  val nowPlaying = playing?.takeIf { it.episode.id == outside }
+  EpisodeList(
+    listOfNotNull(nowPlaying) + rows,
+    empty = "Your queue is empty.",
+    currentId = currentId,
+    sectionOf = nowPlaying?.let { np -> { row -> if (row.episode.id == np.episode.id) "Now playing" else "Up next" } },
+    onEvent = rememberEpisodeEventHandler(),
+  )
 }
 
 @Composable

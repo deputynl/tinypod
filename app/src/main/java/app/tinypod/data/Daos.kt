@@ -103,6 +103,9 @@ interface EpisodeDao {
   @Query("$EPISODE_ROW WHERE e.id = :id")
   suspend fun getWithPodcast(id: Long): EpisodeWithPodcast?
 
+  @Query("$EPISODE_ROW WHERE e.id = :id")
+  fun observeWithPodcast(id: Long): Flow<EpisodeWithPodcast?>
+
   /** The episode to resume: most recently played, not yet finished. */
   @Query("$EPISODE_ROW WHERE e.lastPlayedAt IS NOT NULL AND e.isPlayed = 0 ORDER BY e.lastPlayedAt DESC LIMIT 1")
   suspend fun resumable(): EpisodeWithPodcast?
@@ -144,7 +147,10 @@ interface EpisodeDao {
   @Transaction
   suspend fun setPlayed(id: Long, played: Boolean) {
     setPlayedState(id, played)
-    if (played) advanceNewSince(id)
+    if (played) {
+      advanceNewSince(id)
+      removeFromQueue(id)
+    }
   }
 
   /** Hides an episode from History; its position is kept, so it still resumes where it was. */
@@ -154,12 +160,17 @@ interface EpisodeDao {
   @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun markFinishedState(id: Long, playedAt: Long)
 
-  /** Records that an episode was listened to the end. */
+  /** Records that an episode was listened to the end; it leaves the queue. */
   @Transaction
   suspend fun markFinished(id: Long, playedAt: Long) {
     markFinishedState(id, playedAt)
     advanceNewSince(id)
+    removeFromQueue(id)
   }
+
+  /** A queued episode stays queued until it's finished or marked played (or removed by hand). */
+  @Query("DELETE FROM QueueItem WHERE episodeId = :id")
+  suspend fun removeFromQueue(id: Long)
 
   /**
    * Having finished an episode, only later ones are new: moves its podcast's [Podcast.newSince] past it
@@ -204,13 +215,24 @@ interface QueueDao {
   @Transaction
   suspend fun append(episodeId: Long) = insert(QueueItem(episodeId, nextPosition()))
 
-  /** Puts the episode at the front of the queue, moving it there if it was already queued. */
-  @Transaction
-  suspend fun prepend(episodeId: Long) = replace(listOf(episodeId) + episodeIds().filter { it != episodeId })
+  @Query("SELECT episodeId FROM QueueItem")
+  fun observeIds(): Flow<List<Long>>
 
-  /** Removes and returns the first queued episode id, if any. */
+  /**
+   * Puts the episode right after [afterId] (the one playing) if that's queued, else at the front;
+   * moving it there if it was already queued.
+   */
   @Transaction
-  suspend fun pop(): Long? = episodeIds().firstOrNull()?.also { remove(it) }
+  suspend fun insertNext(episodeId: Long, afterId: Long?) {
+    if (episodeId == afterId) return
+    val rest = episodeIds().filter { it != episodeId }
+    val at = afterId?.let { rest.indexOf(it) + 1 } ?: 0 // indexOf is -1 when not queued: front
+    replace(rest.take(at) + episodeId + rest.drop(at))
+  }
+
+  /** The episode at the top of the queue, which plays next. */
+  @Query("SELECT episodeId FROM QueueItem ORDER BY position LIMIT 1")
+  suspend fun first(): Long?
 
   /** Rewrites the whole queue in the given order. */
   @Transaction

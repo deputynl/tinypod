@@ -78,6 +78,9 @@ sealed interface EpisodeEvent {
   data class DeleteDownload(override val episodeId: Long) : EpisodeEvent
 }
 
+/** The ids of the queued episodes, so any row can offer "Remove from queue" instead of "Add to queue". */
+val LocalQueuedEpisodes = compositionLocalOf<Set<Long>> { emptySet() }
+
 /** Progress of the episodes being downloaded (see [app.tinypod.data.Downloads.progress]); empty in previews. */
 val LocalDownloadProgress = compositionLocalOf<Map<Long, Float?>> { emptyMap() }
 
@@ -93,7 +96,7 @@ fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
     { event ->
       when (event) {
         is EpisodeEvent.Play -> player.play(event.episodeId)
-        is EpisodeEvent.PlayNext -> scope.launch { actions.playNext(event.episodeId) }
+        is EpisodeEvent.PlayNext -> scope.launch { actions.playNext(event.episodeId, playingId = player.nowPlaying.value?.episodeId) }
         is EpisodeEvent.AddToQueue -> scope.launch { actions.addToQueue(event.episodeId) }
         is EpisodeEvent.RemoveFromQueue -> scope.launch { actions.removeFromQueue(event.episodeId) }
         is EpisodeEvent.SetPlayed -> scope.launch { actions.setPlayed(event.episodeId, event.played) }
@@ -119,7 +122,6 @@ fun EpisodeList(
   empty: String,
   modifier: Modifier = Modifier,
   showPodcast: Boolean = true,
-  inQueue: Boolean = false,
   inHistory: Boolean = false,
   inDownloads: Boolean = false,
   scrollableEmpty: Boolean = false,
@@ -147,7 +149,7 @@ fun EpisodeList(
         stickyHeader(key = "section-$rowSection") { SectionHeader(rowSection) }
       }
       item(key = row.episode.id) {
-        EpisodeRow(row, showPodcast, inQueue, inHistory, inDownloads, isCurrent = row.episode.id == currentId, onEvent)
+        EpisodeRow(row, showPodcast, inHistory, inDownloads, isCurrent = row.episode.id == currentId, onEvent)
         HorizontalDivider()
       }
     }
@@ -168,7 +170,6 @@ private fun SectionHeader(label: String) {
 private fun EpisodeRow(
   row: EpisodeWithPodcast,
   showPodcast: Boolean,
-  inQueue: Boolean,
   inHistory: Boolean,
   inDownloads: Boolean,
   isCurrent: Boolean,
@@ -200,8 +201,8 @@ private fun EpisodeRow(
               menuOpen = false
               onEvent(event)
             }
-            DropdownMenuItem(text = { Text("Play next") }, onClick = { pick(EpisodeEvent.PlayNext(e.id)) })
-            if (inQueue) DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { pick(EpisodeEvent.RemoveFromQueue(e.id)) })
+            if (!isCurrent) DropdownMenuItem(text = { Text("Play next") }, onClick = { pick(EpisodeEvent.PlayNext(e.id)) })
+            if (e.id in LocalQueuedEpisodes.current) DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { pick(EpisodeEvent.RemoveFromQueue(e.id)) })
             else DropdownMenuItem(text = { Text("Add to queue") }, onClick = { pick(EpisodeEvent.AddToQueue(e.id)) })
             if (e.isPlayed) DropdownMenuItem(text = { Text("Mark as unplayed") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, false)) })
             else DropdownMenuItem(text = { Text("Mark as played") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, true)) })

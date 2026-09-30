@@ -32,6 +32,9 @@ class TabsViewModel(private val db: TinypodDatabase, private val repository: Pod
     db.episodeDao().observeNewCounts().map { list -> list.associate { it.podcastId to it.count } }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
   val queue = db.queueDao().observe().state()
+
+  /** One episode, kept up to date (e.g. the one playing, for the Queue tab). */
+  fun episode(id: Long) = db.episodeDao().observeWithPodcast(id)
   val history = db.episodeDao().observeHistory().state()
   val downloads = db.episodeDao().observeDownloads().state()
 

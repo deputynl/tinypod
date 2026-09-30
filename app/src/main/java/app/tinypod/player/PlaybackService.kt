@@ -45,7 +45,7 @@ import kotlinx.coroutines.runBlocking
  * The player holds one episode at a time. Media items coming from controllers carry only the
  * episode id as mediaId; they're resolved here from the database, so the UI and Android
  * Auto never need to know about URLs or saved positions. When an episode finishes, it's marked
- * played and the next one is taken from the queue.
+ * played (leaving the queue) and the top of the queue plays next.
  */
 class PlaybackService : MediaLibraryService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -168,10 +168,13 @@ class PlaybackService : MediaLibraryService() {
     player.playbackParameters = PlaybackParameters(next)
   }
 
-  /** When an episode ends, the next queued one plays; with an empty queue, playback simply stops. */
+  /**
+   * When an episode ends it's marked finished (which takes it out of the queue) and the top of the
+   * queue plays; it stays queued until finished too. With an empty queue, playback simply stops.
+   */
   private suspend fun onEpisodeEnded() {
     currentEpisodeId()?.let { db.episodeDao().markFinished(it, System.currentTimeMillis()) }
-    val next = db.queueDao().pop()?.let { db.episodeDao().getWithPodcast(it) } ?: return
+    val next = db.queueDao().first()?.let { db.episodeDao().getWithPodcast(it) } ?: return
     player.setMediaItem(next.toMediaItem(), next.episode.positionMs)
     player.prepare()
     player.play()
@@ -270,7 +273,6 @@ class PlaybackService : MediaLibraryService() {
           mediaItems.mapNotNull { it.mediaId.toLongOrNull()?.let { id -> db.episodeDao().getWithPodcast(id) } }.ifEmpty {
             listOfNotNull(tree.forVoiceQuery(mediaItems.firstOrNull()?.requestMetadata?.searchQuery))
           }
-        rows.forEach { db.queueDao().remove(it.episode.id) } // playing something takes it out of "up next"
         val index = startIndex.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
         val position = if (startPositionMs == C.TIME_UNSET) rows.getOrNull(index)?.episode?.positionMs ?: 0 else startPositionMs
         MediaItemsWithStartPosition(rows.map { it.toMediaItem() }, index, position)

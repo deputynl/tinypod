@@ -5,7 +5,8 @@ class EpisodeActions(db: TinypodDatabase) {
   private val queue = db.queueDao()
   private val episodes = db.episodeDao()
 
-  suspend fun playNext(episodeId: Long) = queue.prepend(episodeId)
+  /** Queues the episode right after [playingId] (if that's queued), else at the top. */
+  suspend fun playNext(episodeId: Long, playingId: Long?) = queue.insertNext(episodeId, playingId)
 
   suspend fun addToQueue(episodeId: Long) = queue.append(episodeId)
 
