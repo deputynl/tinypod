@@ -25,6 +25,8 @@ class BrowseTree(
   db: TinypodDatabase,
   /** The car can't load web images in browse lists, so artwork goes through [ArtworkProvider]. */
   private val artworkUri: (podcastId: Long, artworkUrl: String?) -> Uri?,
+  /** A folder's mosaic of the artwork of (up to four of) its podcasts, given their artwork URLs. */
+  private val folderArtworkUri: (folderId: Long, artworkUrls: List<String>) -> Uri? = { _, _ -> null },
 ) {
   private val episodes = db.episodeDao()
   private val podcasts = db.podcastDao()
@@ -37,7 +39,7 @@ class BrowseTree(
   private val tabs =
     listOf(
       browsable(NEW, "New"),
-      browsable(LIBRARY, "Library"),
+      browsable(LIBRARY, "Library", extras = gridOfChildren()),
       browsable(QUEUE, "Queue"),
       browsable(DOWNLOADS, "Downloads"),
     )
@@ -50,8 +52,15 @@ class BrowseTree(
       NEW -> episodes.observeNew().first().map(::episodeItem)
       QUEUE -> queue.observe().first().map(::episodeItem)
       DOWNLOADS -> episodes.observeDownloads().first().filter { it.episode.isDownloaded }.map(::episodeItem)
-      LIBRARY -> folders.observeAll().first().map(::folderItem) + podcasts.observeUnfiled().first().map(::podcastItem)
-      FOLDER -> id?.takeIf { folders.observe(it).first() != null }?.let { podcasts.observeInFolder(it).first().map(::podcastItem) }
+      LIBRARY -> {
+        val all = podcasts.observeAll().first()
+        val counts = newCounts()
+        folders.observeAll().first().map { folderItem(it, all, counts) } + all.filter { it.folderId == null }.map { podcastItem(it, counts) }
+      }
+      FOLDER -> id?.takeIf { folders.observe(it).first() != null }?.let { folderId ->
+        val counts = newCounts()
+        podcasts.observeInFolder(folderId).first().map { podcastItem(it, counts) }
+      }
       PODCAST -> id?.takeIf { podcasts.observe(it).first() != null }?.let { episodes.observeForPodcast(it).first().take(MAX_EPISODES).map(::episodeItem) }
       else -> null
     }
@@ -64,8 +73,8 @@ class BrowseTree(
     return when (kind) {
       ROOT -> root
       NEW, LIBRARY, QUEUE, DOWNLOADS -> tabs.first { it.mediaId == kind }
-      FOLDER -> id?.let { folders.observe(it).first()?.let(::folderItem) }
-      PODCAST -> id?.let { podcasts.observe(it).first()?.let(::podcastItem) }
+      FOLDER -> id?.let { folders.observe(it).first()?.let { folder -> folderItem(folder, podcasts.observeAll().first(), newCounts()) } }
+      PODCAST -> id?.let { podcasts.observe(it).first()?.let { podcast -> podcastItem(podcast, newCounts()) } }
       else -> null
     }
   }
@@ -86,10 +95,30 @@ class BrowseTree(
     return episodes.resumable() ?: episodes.observeNew().first().firstOrNull()
   }
 
-  private fun folderItem(folder: Folder) = browsable("$FOLDER/${folder.id}", folder.name)
+  /** New episodes per podcast, as on the New tab. */
+  private suspend fun newCounts() = episodes.observeNewCounts().first().associate { it.podcastId to it.count }
 
-  private fun podcastItem(podcast: Podcast) =
-    browsable("$PODCAST/${podcast.id}", podcast.title, subtitle = podcast.author, artwork = artworkUri(podcast.id, podcast.artworkUrl))
+  /** The car has no count badges, so a count of new episodes goes in the subtitle under the tile. */
+  private fun folderItem(folder: Folder, all: List<Podcast>, counts: Map<Long, Int>): MediaItem {
+    val inside = all.filter { it.folderId == folder.id }
+    val new = inside.sumOf { counts[it.id] ?: 0 }
+    return browsable(
+      "$FOLDER/${folder.id}",
+      folder.name,
+      subtitle = if (new > 0) "$new new" else if (inside.size == 1) "1 podcast" else "${inside.size} podcasts",
+      artwork = folderArtworkUri(folder.id, inside.take(4).mapNotNull { it.artworkUrl }),
+      extras = gridOfChildren(),
+    )
+  }
+
+  private fun podcastItem(podcast: Podcast, counts: Map<Long, Int>): MediaItem {
+    val new = counts[podcast.id] ?: 0
+    return browsable("$PODCAST/${podcast.id}", podcast.title, subtitle = if (new > 0) "$new new" else podcast.author, artwork = artworkUri(podcast.id, podcast.artworkUrl))
+  }
+
+  /** Asks the car to show this node's browsable children (folders, podcasts) as artwork tiles. */
+  private fun gridOfChildren() =
+    Bundle().apply { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM) }
 
   private fun episodeItem(row: EpisodeWithPodcast): MediaItem {
     val e = row.episode
@@ -103,6 +132,8 @@ class BrowseTree(
       }
       else -> extras.putInt(MediaConstants.EXTRAS_KEY_COMPLETION_STATUS, MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_NOT_PLAYED)
     }
+    // Shows the car's "downloaded" badge, so you can tell what plays without signal.
+    if (e.isDownloaded) extras.putLong(EXTRA_DOWNLOAD_STATUS, STATUS_DOWNLOADED)
     return MediaItem.Builder()
       .setMediaId(e.id.toString())
       .setMediaMetadata(
@@ -147,6 +178,10 @@ class BrowseTree(
     const val DOWNLOADS = "downloads"
     const val FOLDER = "folder"
     const val PODCAST = "podcast"
+
+    // MediaDescriptionCompat's download-status extra, which Android Auto reads; Media3 has no constant for it.
+    internal const val EXTRA_DOWNLOAD_STATUS = "android.media.extra.DOWNLOAD_STATUS"
+    internal const val STATUS_DOWNLOADED = 2L
 
     /** The car truncates long lists anyway; keep browsing fast. */
     private const val MAX_EPISODES = 100

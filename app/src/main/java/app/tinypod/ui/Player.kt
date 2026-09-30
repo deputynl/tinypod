@@ -20,7 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay30
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -45,10 +45,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import app.tinypod.player.LocalPlayer
 import app.tinypod.player.NowPlaying
+import app.tinypod.player.PlaybackService.Companion.SPEEDS
+import app.tinypod.player.PlaybackService.Companion.formatSpeed
 import app.tinypod.theme.ArtworkTheme
 import app.tinypod.theme.TinypodTheme
 
-private val SPEEDS = listOf(1f, 1.25f, 1.5f, 2f)
 
 /** Callbacks from the player UI; the stateful wrappers route them to the PlayerConnection. */
 data class PlayerControls(
@@ -190,7 +191,7 @@ private fun PlayerControlsSection(np: NowPlaying, controls: PlayerControls) {
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
       IconButton(onClick = controls.onSkipBack, modifier = Modifier.size(56.dp)) {
-        Icon(Icons.Filled.Replay30, contentDescription = "Back 30 seconds", modifier = Modifier.size(36.dp))
+        Icon(Icons.Filled.Replay10, contentDescription = "Back 10 seconds", modifier = Modifier.size(36.dp))
       }
       FilledIconButton(onClick = controls.onPlayPause, modifier = Modifier.size(72.dp)) {
         Icon(
@@ -223,7 +224,6 @@ private fun formatClock(ms: Long): String {
   return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-private fun formatSpeed(speed: Float) = (if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()) + "×"
 
 private val previewNowPlaying =
   NowPlaying(

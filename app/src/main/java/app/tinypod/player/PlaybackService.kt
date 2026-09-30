@@ -2,6 +2,7 @@ package app.tinypod.player
 
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
@@ -12,14 +13,18 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
+import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
 import app.tinypod.TinypodApp
 import app.tinypod.data.EpisodeWithPodcast
 import java.io.File
@@ -48,7 +53,7 @@ class PlaybackService : MediaLibraryService() {
   private val prefs by lazy { getSharedPreferences("player", Context.MODE_PRIVATE) }
   private lateinit var player: ExoPlayer
   private var session: MediaLibrarySession? = null
-  private val tree by lazy { BrowseTree(db, ArtworkProvider::uriFor) }
+  private val tree by lazy { BrowseTree(db, ArtworkProvider::uriFor, ArtworkProvider::folderUriFor) }
 
   /** Whether the current item has played at all since it was loaded; until then there's no progress to save. */
   private var playedSinceLoad = false
@@ -66,12 +71,13 @@ class PlaybackService : MediaLibraryService() {
         )
         .setHandleAudioBecomingNoisy(true) // pause when headphones/Bluetooth disconnect
         .setWakeMode(C.WAKE_MODE_NETWORK)
-        .setSeekBackIncrementMs(SKIP_MS)
-        .setSeekForwardIncrementMs(SKIP_MS)
+        .setSeekBackIncrementMs(SKIP_BACK_MS)
+        .setSeekForwardIncrementMs(SKIP_FORWARD_MS)
         .build()
     player.playbackParameters = PlaybackParameters(prefs.getFloat(KEY_SPEED, 1f))
     player.addListener(PlayerListener())
-    session = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
+    session =
+      MediaLibrarySession.Builder(this, SkipButtonsPlayer(player), LibraryCallback()).setMediaButtonPreferences(mediaButtons()).build()
 
     scope.launch { restoreLastEpisode() }
     scope.launch {
@@ -131,6 +137,38 @@ class PlaybackService : MediaLibraryService() {
     db.episodeDao().saveMeasuredDuration(id, duration)
   }
 
+  /**
+   * The extra buttons shown by Android Auto, the notification and the lock screen: back 10 s and
+   * forward 30 s beside play/pause, and a speed button that cycles through [SPEEDS].
+   */
+  private fun mediaButtons(): List<CommandButton> {
+    val speed = player.playbackParameters.speed
+    return listOf(
+      CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
+        .setDisplayName("Back 10 seconds")
+        .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+        .setSlots(CommandButton.SLOT_BACK)
+        .build(),
+      CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_30)
+        .setDisplayName("Forward 30 seconds")
+        .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+        .setSlots(CommandButton.SLOT_FORWARD)
+        .build(),
+      CommandButton.Builder(speedIcon(speed))
+        .setDisplayName("Speed ${formatSpeed(speed)}")
+        .setSessionCommand(CYCLE_SPEED)
+        .setSlots(CommandButton.SLOT_OVERFLOW)
+        .build(),
+    )
+  }
+
+  private fun cycleSpeed() {
+    val current = player.playbackParameters.speed
+    val next = SPEEDS.firstOrNull { it > current + 0.01f } ?: SPEEDS.first()
+    player.playbackParameters = PlaybackParameters(next)
+  }
+
+  /** When an episode ends, the next queued one plays; with an empty queue, playback simply stops. */
   private suspend fun onEpisodeEnded() {
     currentEpisodeId()?.let { db.episodeDao().markFinished(it, System.currentTimeMillis()) }
     val next = db.queueDao().pop()?.let { db.episodeDao().getWithPodcast(it) } ?: return
@@ -173,6 +211,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
       prefs.edit { putFloat(KEY_SPEED, playbackParameters.speed) }
+      session?.setMediaButtonPreferences(mediaButtons()) // the speed button shows the current speed
     }
 
     override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -181,6 +220,19 @@ class PlaybackService : MediaLibraryService() {
   }
 
   private inner class LibraryCallback : MediaLibrarySession.Callback {
+    override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+      val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(CYCLE_SPEED).build()
+      return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands).build()
+    }
+
+    override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle) =
+      if (customCommand == CYCLE_SPEED) {
+        cycleSpeed()
+        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+      } else {
+        super.onCustomCommand(session, controller, customCommand, args)
+      }
+
     override fun onGetLibraryRoot(session: MediaLibrarySession, browser: MediaSession.ControllerInfo, params: LibraryParams?) =
       scope.future { LibraryResult.ofItem(tree.root, params) }
 
@@ -236,7 +288,23 @@ class PlaybackService : MediaLibraryService() {
   }
 
   companion object {
-    const val SKIP_MS = 30_000L
+    const val SKIP_BACK_MS = 10_000L
+    const val SKIP_FORWARD_MS = 30_000L
+
+    /** The playback speeds offered, on the phone and by the car's speed button. */
+    val SPEEDS = listOf(1f, 1.25f, 1.5f, 2f)
+
+    private val CYCLE_SPEED = SessionCommand("app.tinypod.CYCLE_SPEED", Bundle.EMPTY)
+
+    fun formatSpeed(speed: Float) = (if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()) + "×"
+
+    private fun speedIcon(speed: Float) =
+      when (speed) {
+        1f -> CommandButton.ICON_PLAYBACK_SPEED_1_0
+        1.5f -> CommandButton.ICON_PLAYBACK_SPEED_1_5
+        2f -> CommandButton.ICON_PLAYBACK_SPEED_2_0
+        else -> CommandButton.ICON_PLAYBACK_SPEED // no ready-made icon for 1.25×
+      }
     private const val SAVE_INTERVAL_MS = 5_000L
     private const val KEY_SPEED = "speed"
 

@@ -12,6 +12,7 @@ import app.tinypod.data.TinypodDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -29,7 +30,7 @@ class BrowseTreeTest {
   @Before
   fun setUp(): Unit = runBlocking {
     db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), TinypodDatabase::class.java).build()
-    tree = BrowseTree(db) { id, url -> url?.let { Uri.parse("content://art/$id") } }
+    tree = BrowseTree(db, artworkUri = { id, url -> url?.let { Uri.parse("content://art/$id") } })
     news = db.folderDao().insert(Folder(name = "News"))
     daily = db.podcastDao().insert(Podcast(feedUrl = "https://d.example/rss", title = "The Daily Thing", artworkUrl = "https://d.example/a.jpg", folderId = news))
     comedy = db.podcastDao().insert(Podcast(feedUrl = "https://c.example/rss", title = "Comedy Hour"))
@@ -70,6 +71,31 @@ class BrowseTreeTest {
     assertEquals(MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_PARTIALLY_PLAYED, extras["1"]!!.getInt(MediaConstants.EXTRAS_KEY_COMPLETION_STATUS))
     assertEquals(0.25, extras["1"]!!.getDouble(MediaConstants.EXTRAS_KEY_COMPLETION_PERCENTAGE), 0.001)
     assertEquals(Uri.parse("content://art/$daily"), episodes[0].mediaMetadata.artworkUri)
+  }
+
+  @Test
+  fun libraryAndFoldersAreTilesWithNewCounts() = runBlocking {
+    val grid = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+    fun style(item: androidx.media3.common.MediaItem) = item.mediaMetadata.extras?.getInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE)
+    assertEquals(grid, style(tree.item("library")!!))
+    assertEquals(grid, style(tree.item("folder/$news")!!))
+
+    // The Daily Thing has two new episodes (1 and 2), Comedy Hour one.
+    val library = tree.children("library")!!.associateBy { it.mediaId }
+    assertEquals("2 new", library["folder/$news"]!!.mediaMetadata.subtitle)
+    assertEquals("1 new", library["podcast/$comedy"]!!.mediaMetadata.subtitle)
+    assertEquals("2 new", tree.children("folder/$news")!!.single().mediaMetadata.subtitle)
+
+    db.episodeDao().markFinished(2, playedAt = 9_000) // nothing newer left
+    assertEquals("1 podcast", tree.item("folder/$news")!!.mediaMetadata.subtitle)
+  }
+
+  @Test
+  fun downloadedEpisodesGetTheCarsDownloadedBadge() = runBlocking {
+    db.episodeDao().setLocalFile(1, "/files/episode-1.mp3")
+    val extras = tree.children("podcast/$daily")!!.associate { it.mediaId to it.mediaMetadata.extras!! }
+    assertEquals(BrowseTree.STATUS_DOWNLOADED, extras["1"]!!.getLong(BrowseTree.EXTRA_DOWNLOAD_STATUS))
+    assertFalse(extras["2"]!!.containsKey(BrowseTree.EXTRA_DOWNLOAD_STATUS))
   }
 
   @Test
