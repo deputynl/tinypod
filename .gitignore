@@ -14,3 +14,7 @@
 .cxx
 local.properties
 /.kotlin
+scripts/
+# Private: the signing key and personal planning notes
+/keystore/
+/PLAN.md

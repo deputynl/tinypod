@@ -19,10 +19,14 @@ android {
     }
 
     signingConfigs {
-        // Kept in the repo so every rebuild is signed with the same key; a changed key makes
-        // Android (and Android Auto) treat the app as a different one and wipes its data on reinstall.
-        getByName("debug") {
-            storeFile = rootProject.file("keystore/debug.keystore")
+        // Sign with a fixed key when there is one, so every rebuild installs as an update: a changed
+        // key makes Android (and Android Auto) treat the app as a different one. The key is private
+        // and git-ignored; without it, builds use the SDK's default debug key.
+        val keystore = rootProject.file("keystore/debug.keystore")
+        if (keystore.exists()) {
+            getByName("debug") {
+                storeFile = keystore
+            }
         }
     }
 
