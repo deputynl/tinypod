@@ -2,6 +2,7 @@ package app.tinypod.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,6 +43,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.tinypod.player.LocalPlayer
 import app.tinypod.player.NowPlaying
+import app.tinypod.theme.ArtworkTheme
 import app.tinypod.theme.TinypodTheme
 
 private val SPEEDS = listOf(1f, 1.25f, 1.5f, 2f)
@@ -65,7 +68,8 @@ private fun rememberPlayerControls(): PlayerControls {
 @Composable
 fun MiniPlayer(onOpen: () -> Unit) {
   val nowPlaying by LocalPlayer.current.nowPlaying.collectAsState()
-  nowPlaying?.let { MiniPlayerContent(it, rememberPlayerControls(), onOpen) }
+  val np = nowPlaying ?: return
+  ArtworkTheme(np.artworkUrl) { MiniPlayerContent(np, rememberPlayerControls(), onOpen) }
 }
 
 @Composable
@@ -91,7 +95,11 @@ fun MiniPlayerContent(np: NowPlaying, controls: PlayerControls, onOpen: () -> Un
 fun FullPlayerScreen() {
   val nowPlaying by LocalPlayer.current.nowPlaying.collectAsState()
   val np = nowPlaying ?: return EmptyState("Nothing playing.")
-  FullPlayerContent(np, rememberPlayerControls())
+  ArtworkTheme(np.artworkUrl) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+      Box(Modifier.statusBarsPadding()) { FullPlayerContent(np, rememberPlayerControls()) }
+    }
+  }
 }
 
 @Composable

@@ -1,7 +1,12 @@
 package app.tinypod
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -9,6 +14,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
@@ -55,38 +61,49 @@ fun MainNavigation() {
   ) { padding ->
     NavDisplay(
       backStack = backStack,
-      modifier = Modifier.padding(padding),
+      // No top padding: screens handle the status bar themselves, so tinted ones can colour it too.
+      modifier = Modifier.padding(start = padding.calculateStartPadding(LocalLayoutDirection.current), end = padding.calculateEndPadding(LocalLayoutDirection.current), bottom = padding.calculateBottomPadding()),
       onBack = { backStack.removeLastOrNull() },
       // Gives each entry its own saved state and ViewModel scope, cleared when it leaves the stack.
       entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
       entryProvider =
         entryProvider {
-          entry<NewEpisodes> { NewEpisodesScreen(vm, onAddPodcast = { backStack.add(AddPodcast) }) }
+          entry<NewEpisodes> { BelowStatusBar { NewEpisodesScreen(vm, onAddPodcast = { backStack.add(AddPodcast) }) } }
           entry<Library> {
-            LibraryScreen(
-              vm,
-              onPodcastClick = { backStack.add(PodcastDetail(it)) },
-              onFolderClick = { backStack.add(FolderDetail(it)) },
-              onAddPodcast = { backStack.add(AddPodcast) },
-            )
+            BelowStatusBar {
+              LibraryScreen(
+                vm,
+                onPodcastClick = { backStack.add(PodcastDetail(it)) },
+                onFolderClick = { backStack.add(FolderDetail(it)) },
+                onAddPodcast = { backStack.add(AddPodcast) },
+              )
+            }
           }
           entry<AddPodcast> {
-            AddPodcastScreen(
-              onSubscribed = { id ->
-                backStack.removeLastOrNull()
-                backStack.add(PodcastDetail(id))
-              }
-            )
+            BelowStatusBar {
+              AddPodcastScreen(
+                onSubscribed = { id ->
+                  backStack.removeLastOrNull()
+                  backStack.add(PodcastDetail(id))
+                }
+              )
+            }
           }
           entry<PodcastDetail> { key -> PodcastScreen(key.podcastId, onUnsubscribed = { backStack.removeLastOrNull() }) }
           entry<FolderDetail> { key ->
-            FolderScreen(key.folderId, onPodcastClick = { backStack.add(PodcastDetail(it)) }, onDeleted = { backStack.removeLastOrNull() })
+            BelowStatusBar {
+              FolderScreen(key.folderId, onPodcastClick = { backStack.add(PodcastDetail(it)) }, onDeleted = { backStack.removeLastOrNull() })
+            }
           }
           entry<FullPlayer> { FullPlayerScreen() }
-          entry<Queue> { QueueScreen(vm) }
-          entry<History> { HistoryScreen(vm) }
-          entry<Downloads> { DownloadsScreen(vm) }
+          entry<Queue> { BelowStatusBar { QueueScreen(vm) } }
+          entry<History> { BelowStatusBar { HistoryScreen(vm) } }
+          entry<Downloads> { BelowStatusBar { DownloadsScreen(vm) } }
         },
     )
   }
 }
+
+/** Keeps a screen's content clear of the status bar (tinted screens draw behind it themselves). */
+@Composable
+private fun BelowStatusBar(content: @Composable () -> Unit) = Box(Modifier.fillMaxSize().statusBarsPadding()) { content() }

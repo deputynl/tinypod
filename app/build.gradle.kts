@@ -91,6 +91,8 @@ dependencies {
   // Artwork
   implementation(libs.coil.compose)
   implementation(libs.coil.network.okhttp)
+  // Colours from artwork, for tinting the player and podcast pages
+  implementation(libs.androidx.palette)
 
   // Background feed refresh
   implementation(libs.androidx.work.runtime.ktx)

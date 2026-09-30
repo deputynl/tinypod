@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
@@ -20,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,6 +50,7 @@ import app.tinypod.data.EpisodeWithPodcast
 import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
 import app.tinypod.data.PodcastRepository
+import app.tinypod.theme.ArtworkTheme
 import app.tinypod.theme.TinypodTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,58 +107,64 @@ fun PodcastScreen(podcastId: Long, onUnsubscribed: () -> Unit) {
   var pickFolder by remember { mutableStateOf(false) }
   var newFolder by remember { mutableStateOf(false) }
 
-  PodcastContent(
-    podcast,
-    results,
-    totalEpisodes = episodes.size,
-    query = query,
-    onQueryChange = { vm.query.value = it },
-    folderName = folders.firstOrNull { it.id == podcast?.folderId }?.name,
-    onFolderClick = { pickFolder = true },
-    onUnsubscribe = { confirmUnsubscribe = true },
-    currentId = currentEpisodeId(),
-    onEvent = rememberEpisodeEventHandler(),
-  )
+  // The page takes its colours from the podcast's artwork, dialogs included.
+  ArtworkTheme(podcast?.artworkUrl) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+      PodcastContent(
+        podcast,
+        results,
+        totalEpisodes = episodes.size,
+        query = query,
+        onQueryChange = { vm.query.value = it },
+        folderName = folders.firstOrNull { it.id == podcast?.folderId }?.name,
+        onFolderClick = { pickFolder = true },
+        onUnsubscribe = { confirmUnsubscribe = true },
+        modifier = Modifier.statusBarsPadding(),
+        currentId = currentEpisodeId(),
+        onEvent = rememberEpisodeEventHandler(),
+      )
 
-  if (pickFolder) {
-    MoveToFolderDialog(
-      folders = folders,
-      currentFolderId = podcast?.folderId,
-      onPick = { vm.moveToFolder(it); pickFolder = false },
-      onNewFolder = { pickFolder = false; newFolder = true },
-      onDismiss = { pickFolder = false },
-    )
-  }
-  if (newFolder) {
-    FolderNameDialog(
-      title = "New folder",
-      confirm = "Create",
-      folders = folders,
-      onConfirm = { vm.moveToNewFolder(it); newFolder = false },
-      onDismiss = { newFolder = false },
-    )
-  }
+      if (pickFolder) {
+        MoveToFolderDialog(
+          folders = folders,
+          currentFolderId = podcast?.folderId,
+          onPick = { vm.moveToFolder(it); pickFolder = false },
+          onNewFolder = { pickFolder = false; newFolder = true },
+          onDismiss = { pickFolder = false },
+        )
+      }
+      if (newFolder) {
+        FolderNameDialog(
+          title = "New folder",
+          confirm = "Create",
+          folders = folders,
+          onConfirm = { vm.moveToNewFolder(it); newFolder = false },
+          onDismiss = { newFolder = false },
+        )
+      }
 
-  if (confirmUnsubscribe) {
-    AlertDialog(
-      onDismissRequest = { confirmUnsubscribe = false },
-      title = { Text("Unsubscribe?") },
-      text = { Text("This removes the podcast and all its episodes, including playback progress.") },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            confirmUnsubscribe = false
-            scope.launch {
-              vm.unsubscribe()
-              onUnsubscribed()
+      if (confirmUnsubscribe) {
+        AlertDialog(
+          onDismissRequest = { confirmUnsubscribe = false },
+          title = { Text("Unsubscribe?") },
+          text = { Text("This removes the podcast and all its episodes, including playback progress.") },
+          confirmButton = {
+            TextButton(
+              onClick = {
+                confirmUnsubscribe = false
+                scope.launch {
+                  vm.unsubscribe()
+                  onUnsubscribed()
+                }
+              }
+            ) {
+              Text("Unsubscribe")
             }
-          }
-        ) {
-          Text("Unsubscribe")
-        }
-      },
-      dismissButton = { TextButton(onClick = { confirmUnsubscribe = false }) { Text("Cancel") } },
-    )
+          },
+          dismissButton = { TextButton(onClick = { confirmUnsubscribe = false }) { Text("Cancel") } },
+        )
+      }
+    }
   }
 }
 
