@@ -37,15 +37,17 @@ import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Owns the ExoPlayer and exposes it through a MediaLibrarySession, which gives background playback,
  * notification/lock-screen/Bluetooth controls, and Android Auto (browsing via [BrowseTree]).
  *
- * The player holds one episode at a time. Media items coming from controllers carry only the
- * episode id as mediaId; they're resolved here from the database, so the UI and Android
- * Auto never need to know about URLs or saved positions. When an episode finishes, it's marked
- * played (leaving the queue) and the top of the queue plays next.
+ * The player's playlist mirrors the queue: the playing episode, then the queue (see [syncPlaylist]).
+ * Media items coming from controllers carry only the episode id as mediaId; they're resolved here
+ * from the database, so the UI and Android Auto never need to know about URLs or saved positions.
+ * When an episode finishes, it's marked played (leaving the queue) and the top of the queue plays next.
  */
 class PlaybackService : MediaLibraryService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -80,6 +82,8 @@ class PlaybackService : MediaLibraryService() {
       MediaLibrarySession.Builder(this, SkipButtonsPlayer(player), LibraryCallback()).setMediaButtonPreferences(mediaButtons()).build()
 
     scope.launch { restoreLastEpisode() }
+    // Queue changes (from the phone or the car) update the player's playlist right away.
+    scope.launch { db.queueDao().observeIds().collect { syncPlaylist() } }
     scope.launch {
       while (isActive) {
         delay(SAVE_INTERVAL_MS)
@@ -114,6 +118,34 @@ class PlaybackService : MediaLibraryService() {
   }
 
   private fun currentEpisodeId(): Long? = player.currentMediaItem?.mediaId?.toLongOrNull()
+
+  private val syncing = Mutex()
+
+  /**
+   * Makes the player's playlist mirror the queue: the playing episode, then the queue in its order
+   * (without the playing one). That's what the car's and lock screen's queue views show, and what
+   * the player moves on to when an episode ends.
+   */
+  private suspend fun syncPlaylist() =
+    syncing.withLock {
+      val current = currentEpisodeId() ?: return@withLock
+      val index = player.currentMediaItemIndex
+      if (index > 0) player.removeMediaItems(0, index) // episodes before the current one are done with
+      val wanted = db.queueDao().episodeIds().filter { it != current }
+      val have = (1 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId.toLongOrNull() }
+      if (have == wanted) return@withLock
+      val items = wanted.mapNotNull { db.episodeDao().getWithPodcast(it)?.toMediaItem() }
+      // The player may have moved on while the database was read; a newer sync follows if so.
+      if (currentEpisodeId() != current || player.currentMediaItemIndex != 0) return@withLock
+      player.replaceMediaItems(1, player.mediaItemCount, items)
+    }
+
+  /** Moving to another episode in the playlist starts it where it was left off, not at the beginning. */
+  private suspend fun resumeAtSavedPosition() {
+    val id = currentEpisodeId() ?: return
+    val episode = db.episodeDao().get(id) ?: return
+    if (!episode.isPlayed && episode.positionMs > 0 && currentEpisodeId() == id) player.seekTo(episode.positionMs)
+  }
 
   private suspend fun savePosition() {
     val id = currentEpisodeId() ?: return
@@ -190,6 +222,11 @@ class PlaybackService : MediaLibraryService() {
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
       playedSinceLoad = false
       durationSaved = false
+      scope.launch {
+        // Items set by a controller already start at the right place; moving within the playlist doesn't.
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) resumeAtSavedPosition()
+        syncPlaylist()
+      }
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -218,6 +255,16 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+      val oldId = oldPosition.mediaItem?.mediaId?.toLongOrNull()
+      if (oldId != null && oldId != newPosition.mediaItem?.mediaId?.toLongOrNull()) {
+        // Left one episode for the next: it either played to the end, or was switched away from.
+        val now = System.currentTimeMillis()
+        when (reason) {
+          Player.DISCONTINUITY_REASON_AUTO_TRANSITION -> scope.launch { db.episodeDao().markFinished(oldId, now) }
+          Player.DISCONTINUITY_REASON_SEEK -> if (playedSinceLoad) scope.launch { db.episodeDao().savePosition(oldId, oldPosition.positionMs, now) }
+        }
+        return
+      }
       if (reason == Player.DISCONTINUITY_REASON_SEEK) scope.launch { savePosition() }
     }
   }
