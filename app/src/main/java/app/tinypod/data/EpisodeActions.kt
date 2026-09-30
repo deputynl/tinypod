@@ -12,6 +12,8 @@ class EpisodeActions(db: TinypodDatabase) {
 
   suspend fun removeFromQueue(episodeId: Long) = queue.remove(episodeId)
 
+  suspend fun moveInQueue(episodeId: Long, toTop: Boolean) = queue.move(episodeId, toTop)
+
   suspend fun setPlayed(episodeId: Long, played: Boolean) = episodes.setPlayed(episodeId, played)
 
   suspend fun removeFromHistory(episodeId: Long) = episodes.removeFromHistory(episodeId)

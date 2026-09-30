@@ -33,6 +33,10 @@ class TabsViewModel(private val db: TinypodDatabase, private val repository: Pod
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
   val queue = db.queueDao().observe().state()
 
+  fun reorderQueue(episodeIds: List<Long>) {
+    viewModelScope.launch { db.queueDao().reorder(episodeIds) }
+  }
+
   /** One episode, kept up to date (e.g. the one playing, for the Queue tab). */
   fun episode(id: Long) = db.episodeDao().observeWithPodcast(id)
   val history = db.episodeDao().observeHistory().state()

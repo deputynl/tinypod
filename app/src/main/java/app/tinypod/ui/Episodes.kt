@@ -1,6 +1,15 @@
 package app.tinypod.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -67,6 +76,8 @@ sealed interface EpisodeEvent {
 
   data class RemoveFromQueue(override val episodeId: Long) : EpisodeEvent
 
+  data class MoveInQueue(override val episodeId: Long, val toTop: Boolean) : EpisodeEvent
+
   data class SetPlayed(override val episodeId: Long, val played: Boolean) : EpisodeEvent
 
   data class RemoveFromHistory(override val episodeId: Long) : EpisodeEvent
@@ -99,6 +110,7 @@ fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
         is EpisodeEvent.PlayNext -> scope.launch { actions.playNext(event.episodeId, playingId = player.nowPlaying.value?.episodeId) }
         is EpisodeEvent.AddToQueue -> scope.launch { actions.addToQueue(event.episodeId) }
         is EpisodeEvent.RemoveFromQueue -> scope.launch { actions.removeFromQueue(event.episodeId) }
+        is EpisodeEvent.MoveInQueue -> scope.launch { actions.moveInQueue(event.episodeId, event.toTop) }
         is EpisodeEvent.SetPlayed -> scope.launch { actions.setPlayed(event.episodeId, event.played) }
         is EpisodeEvent.RemoveFromHistory -> scope.launch { actions.removeFromHistory(event.episodeId) }
         is EpisodeEvent.Download -> scope.launch { downloads.start(event.episodeId) }
@@ -131,9 +143,18 @@ fun EpisodeList(
   listState: LazyListState = rememberLazyListState(),
   /** Items shown above the episodes that scroll with them, such as a page header. */
   header: (LazyListScope.() -> Unit)? = null,
+  /** Makes queued rows draggable (and movable from their menu); called with the queued ids in their new order. */
+  onReorder: ((List<Long>) -> Unit)? = null,
   onEvent: (EpisodeEvent) -> Unit = {},
 ) {
   if (rows.isEmpty() && header == null) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
+  val queued = LocalQueuedEpisodes.current
+  val currentQueued by rememberUpdatedState(queued)
+  val currentRows by rememberUpdatedState(rows)
+  val reorder = rememberReorderState(listState) { key -> key is Long && key in currentQueued }
+  val haptics = LocalHapticFeedback.current
+  // While a row is dragged, show the order being dragged rather than updates from the database.
+  val shown = reorder.order ?: rows
   LazyColumn(modifier.fillMaxSize(), state = listState) {
     header?.invoke(this)
     if (rows.isEmpty()) {
@@ -142,15 +163,53 @@ fun EpisodeList(
       }
     }
     var section: String? = null
-    rows.forEach { row ->
+    shown.forEach { row ->
       val rowSection = sectionOf?.invoke(row)
       if (rowSection != null && rowSection != section) {
         section = rowSection
         stickyHeader(key = "section-$rowSection") { SectionHeader(rowSection) }
       }
       item(key = row.episode.id) {
-        EpisodeRow(row, showPodcast, inHistory, inDownloads, isCurrent = row.episode.id == currentId, onEvent)
-        HorizontalDivider()
+        val id = row.episode.id
+        val reorderable = onReorder != null && id in queued
+        val dragged = reorder.draggedId == id
+        val handle: (@Composable () -> Unit)? =
+          if (!reorderable) null
+          else {
+            {
+              Icon(
+                Icons.Filled.DragHandle,
+                contentDescription = "Drag to reorder",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier =
+                  Modifier.size(40.dp).padding(8.dp).pointerInput(id) {
+                    detectDragGestures(
+                      onDragStart = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        reorder.start(currentRows, id)
+                      },
+                      onDrag = { change, amount ->
+                        change.consume()
+                        reorder.drag(amount.y)
+                      },
+                      onDragEnd = { reorder.end()?.let { order -> onReorder?.invoke(order.map { it.episode.id }.filter { it in currentQueued }) } },
+                      onDragCancel = { reorder.end() },
+                    )
+                  },
+              )
+            }
+          }
+        Column(
+          (if (dragged) Modifier.zIndex(1f) else Modifier.animateItem())
+            .graphicsLayer {
+              translationY = if (dragged) reorder.translation() else 0f
+              shadowElevation = if (dragged) 8.dp.toPx() else 0f
+            }
+            .background(MaterialTheme.colorScheme.surface)
+        ) {
+          EpisodeRow(row, showPodcast, inHistory, inDownloads, isCurrent = id == currentId, onEvent, handle, movable = reorderable)
+          HorizontalDivider()
+        }
       }
     }
   }
@@ -174,12 +233,23 @@ private fun EpisodeRow(
   inDownloads: Boolean,
   isCurrent: Boolean,
   onEvent: (EpisodeEvent) -> Unit,
+  dragHandle: (@Composable () -> Unit)? = null,
+  /** Offer "Move to top/bottom" (queued rows on the Queue tab). */
+  movable: Boolean = false,
 ) {
   val e = row.episode
   var menuOpen by remember { mutableStateOf(false) }
   ListItem(
     modifier = Modifier.clickable { onEvent(EpisodeEvent.Play(e.id)) },
-    leadingContent = if (showPodcast) ({ Artwork(row.artworkUrl, Modifier.size(48.dp)) }) else null,
+    leadingContent =
+      if (showPodcast || dragHandle != null) {
+        {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            dragHandle?.invoke()
+            if (showPodcast) Artwork(row.artworkUrl, Modifier.size(48.dp))
+          }
+        }
+      } else null,
     overlineContent = if (showPodcast) ({ Text(row.podcastTitle, maxLines = 1) }) else null,
     headlineContent = {
       Text(
@@ -202,6 +272,10 @@ private fun EpisodeRow(
               onEvent(event)
             }
             if (!isCurrent) DropdownMenuItem(text = { Text("Play next") }, onClick = { pick(EpisodeEvent.PlayNext(e.id)) })
+            if (movable) {
+              DropdownMenuItem(text = { Text("Move to top") }, onClick = { pick(EpisodeEvent.MoveInQueue(e.id, toTop = true)) })
+              DropdownMenuItem(text = { Text("Move to bottom") }, onClick = { pick(EpisodeEvent.MoveInQueue(e.id, toTop = false)) })
+            }
             if (e.id in LocalQueuedEpisodes.current) DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { pick(EpisodeEvent.RemoveFromQueue(e.id)) })
             else DropdownMenuItem(text = { Text("Add to queue") }, onClick = { pick(EpisodeEvent.AddToQueue(e.id)) })
             if (e.isPlayed) DropdownMenuItem(text = { Text("Mark as unplayed") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, false)) })

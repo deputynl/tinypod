@@ -74,6 +74,7 @@ fun QueueScreen(vm: TabsViewModel) {
     empty = "Your queue is empty.",
     currentId = currentId,
     sectionOf = nowPlaying?.let { np -> { row -> if (row.episode.id == np.episode.id) "Now playing" else "Up next" } },
+    onReorder = vm::reorderQueue,
     onEvent = rememberEpisodeEventHandler(),
   )
 }

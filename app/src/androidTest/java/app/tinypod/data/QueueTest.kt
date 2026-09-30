@@ -59,6 +59,25 @@ class QueueTest {
   }
 
   @Test
+  fun movingToTopAndBottom() = runBlocking {
+    queue.move(3, toTop = true)
+    assertEquals(listOf(3L, 1L, 2L), queue.episodeIds())
+    queue.move(3, toTop = false)
+    assertEquals(listOf(1L, 2L, 3L), queue.episodeIds())
+    queue.move(5, toTop = true) // not queued: nothing happens
+    assertEquals(listOf(1L, 2L, 3L), queue.episodeIds())
+  }
+
+  @Test
+  fun aDraggedOrderIsReconciledWithChangesDuringTheDrag() = runBlocking {
+    // Dragged 3 to the top, while meanwhile 2 was finished and 4 queued.
+    episodes.markFinished(2, playedAt = 1)
+    queue.append(4)
+    queue.reorder(listOf(3L, 1L, 2L))
+    assertEquals(listOf(3L, 1L, 4L), queue.episodeIds())
+  }
+
+  @Test
   fun markingPlayedRemovesItButUnplayedDoesNotQueueIt() = runBlocking {
     episodes.setPlayed(1, played = true)
     assertEquals(listOf(2L, 3L), queue.episodeIds())

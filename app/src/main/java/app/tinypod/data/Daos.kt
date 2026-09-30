@@ -230,6 +230,23 @@ interface QueueDao {
     replace(rest.take(at) + episodeId + rest.drop(at))
   }
 
+  /** Moves a queued episode to the top or the bottom of the queue. */
+  @Transaction
+  suspend fun move(episodeId: Long, toTop: Boolean) {
+    val rest = episodeIds().takeIf { episodeId in it }?.filter { it != episodeId } ?: return
+    replace(if (toTop) listOf(episodeId) + rest else rest + episodeId)
+  }
+
+  /**
+   * Saves a new order (from dragging). Reconciled with the queue as it is now: episodes that left
+   * the queue meanwhile stay out, and ones added meanwhile keep their place at the end.
+   */
+  @Transaction
+  suspend fun reorder(episodeIds: List<Long>) {
+    val current = episodeIds()
+    replace(episodeIds.filter { it in current } + current.filter { it !in episodeIds })
+  }
+
   /** The episode at the top of the queue, which plays next. */
   @Query("SELECT episodeId FROM QueueItem ORDER BY position LIMIT 1")
   suspend fun first(): Long?
