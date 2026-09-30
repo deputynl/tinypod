@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.tinypod.TinypodApp
 import app.tinypod.data.Episode
@@ -125,10 +127,18 @@ fun EpisodeList(
   /** Groups consecutive rows under a sticky header with this label (rows must already be in section order). */
   sectionOf: ((EpisodeWithPodcast) -> String)? = null,
   listState: LazyListState = rememberLazyListState(),
+  /** Items shown above the episodes that scroll with them, such as a page header. */
+  header: (LazyListScope.() -> Unit)? = null,
   onEvent: (EpisodeEvent) -> Unit = {},
 ) {
-  if (rows.isEmpty()) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
+  if (rows.isEmpty() && header == null) return EmptyState(empty, modifier, scrollable = scrollableEmpty)
   LazyColumn(modifier.fillMaxSize(), state = listState) {
+    header?.invoke(this)
+    if (rows.isEmpty()) {
+      item(key = "empty") {
+        Text(empty, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(32.dp))
+      }
+    }
     var section: String? = null
     rows.forEach { row ->
       val rowSection = sectionOf?.invoke(row)

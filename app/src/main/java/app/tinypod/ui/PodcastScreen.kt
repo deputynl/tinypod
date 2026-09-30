@@ -1,5 +1,6 @@
 package app.tinypod.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -182,67 +183,81 @@ fun PodcastContent(
   currentId: Long? = null,
   onEvent: (EpisodeEvent) -> Unit = {},
 ) {
-  Column(modifier.fillMaxSize()) {
-    if (podcast != null) {
-      Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Artwork(podcast.artworkUrl, Modifier.size(96.dp))
-        Column(Modifier.padding(start = 16.dp)) {
-        Text(podcast.title, style = MaterialTheme.typography.headlineSmall)
-        podcast.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Row {
-          TextButton(onClick = onFolderClick, contentPadding = PaddingValues(0.dp)) {
-            Icon(Icons.Filled.Folder, contentDescription = null, Modifier.size(18.dp))
-            Text(folderName ?: "Add to folder", Modifier.padding(start = 6.dp))
-          }
-          TextButton(onClick = onUnsubscribe, contentPadding = PaddingValues(horizontal = 16.dp)) { Text("Unsubscribe") }
+  val searching = query.isNotBlank()
+  val searchIndex = if (podcast != null) 1 else 0
+  // A changed query shows its results right under the search bar (unless the header is still in
+  // view). Only on an actual change, so coming back to this screen keeps its scroll position.
+  val listState = rememberLazyListState()
+  var scrolledFor by rememberSaveable { mutableStateOf(query) }
+  LaunchedEffect(query) {
+    if (query != scrolledFor) {
+      scrolledFor = query
+      if (listState.firstVisibleItemIndex >= searchIndex) listState.scrollToItem(searchIndex)
+    }
+  }
+  // The header scrolls away with the episodes; the search bar then sticks to the top.
+  EpisodeList(
+    episodes,
+    empty = if (searching) "No episodes match “${query.trim()}”." else "This feed has no episodes.",
+    modifier = modifier,
+    showPodcast = false,
+    currentId = currentId,
+    listState = listState,
+    header = {
+      if (podcast != null) item(key = "header") { PodcastHeader(podcast, folderName, onFolderClick, onUnsubscribe) }
+      if (totalEpisodes > 0) {
+        stickyHeader(key = "search") { EpisodeSearchBar(query, onQueryChange, if (searching) "${episodes.size} of $totalEpisodes episodes" else null) }
+      }
+    },
+    onEvent = onEvent,
+  )
+}
+
+@Composable
+private fun PodcastHeader(podcast: Podcast, folderName: String?, onFolderClick: () -> Unit, onUnsubscribe: () -> Unit) {
+  Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Artwork(podcast.artworkUrl, Modifier.size(96.dp))
+    Column(Modifier.padding(start = 16.dp)) {
+      Text(podcast.title, style = MaterialTheme.typography.headlineSmall)
+      podcast.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+      Row {
+        TextButton(onClick = onFolderClick, contentPadding = PaddingValues(0.dp)) {
+          Icon(Icons.Filled.Folder, contentDescription = null, Modifier.size(18.dp))
+          Text(folderName ?: "Add to folder", Modifier.padding(start = 6.dp))
         }
-        }
+        TextButton(onClick = onUnsubscribe, contentPadding = PaddingValues(horizontal = 16.dp)) { Text("Unsubscribe") }
       }
     }
-    val searching = query.isNotBlank()
-    if (totalEpisodes > 0) {
-      val keyboard = LocalSoftwareKeyboardController.current
-      OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        placeholder = { Text("Search episodes") },
-        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-        trailingIcon =
-          if (query.isNotEmpty()) ({ IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") } })
-          else null,
-        singleLine = true,
-        shape = RoundedCornerShape(28.dp),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
-      )
-      if (searching) {
-        Text(
-          "${episodes.size} of $totalEpisodes episodes",
-          style = MaterialTheme.typography.labelMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-        )
-      }
-    }
-    // New results start at the top, not wherever the previous list was scrolled to. Only on an actual
-    // change of query, so coming back to this screen keeps its scroll position.
-    val listState = rememberLazyListState()
-    var scrolledFor by rememberSaveable { mutableStateOf(query) }
-    LaunchedEffect(query) {
-      if (query != scrolledFor) {
-        scrolledFor = query
-        listState.scrollToItem(0)
-      }
-    }
-    EpisodeList(
-      episodes,
-      empty = if (searching) "No episodes match “${query.trim()}”." else "This feed has no episodes.",
-      showPodcast = false,
-      currentId = currentId,
-      listState = listState,
-      onEvent = onEvent,
+  }
+}
+
+@Composable
+private fun EpisodeSearchBar(query: String, onQueryChange: (String) -> Unit, resultCount: String?) {
+  val keyboard = LocalSoftwareKeyboardController.current
+  // Opaque, since the episodes scroll underneath it.
+  Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 8.dp)) {
+    OutlinedTextField(
+      value = query,
+      onValueChange = onQueryChange,
+      placeholder = { Text("Search episodes") },
+      leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+      trailingIcon =
+        if (query.isNotEmpty()) ({ IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") } })
+        else null,
+      singleLine = true,
+      shape = RoundedCornerShape(28.dp),
+      keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+      keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+      modifier = Modifier.fillMaxWidth(),
     )
+    if (resultCount != null) {
+      Text(
+        resultCount,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+      )
+    }
   }
 }
 

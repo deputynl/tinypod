@@ -2,6 +2,7 @@ package app.tinypod.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import app.tinypod.player.LocalPlayer
 import app.tinypod.player.NowPlaying
 import app.tinypod.theme.ArtworkTheme
@@ -102,23 +104,74 @@ fun FullPlayerScreen() {
   }
 }
 
+/**
+ * Fits any window without scrolling: the controls take their natural height and the artwork gets
+ * whatever is left. Wide windows (landscape, unfolded foldables) put the artwork beside the controls.
+ */
 @Composable
 fun FullPlayerContent(np: NowPlaying, controls: PlayerControls) {
+  BoxWithConstraints(Modifier.fillMaxSize()) {
+    val wide = maxWidth > maxHeight
+    val short = maxHeight < 480.dp
+    val pad = if (short) 16.dp else 24.dp
+    val gap = if (short) 8.dp else 16.dp
+    when {
+      wide -> {
+        val artSize = min(maxHeight - pad * 2, maxWidth * 0.45f)
+        Row(Modifier.fillMaxSize().padding(pad), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(pad)) {
+          Artwork(np.artworkUrl, Modifier.size(artSize))
+          // Scrolls only as a last resort, in windows too short for the controls.
+          Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(gap),
+          ) {
+            PlayerInfo(np, maxTitleLines = 2)
+            PlayerControlsSection(np, controls)
+          }
+        }
+      }
+      maxHeight < 400.dp -> {
+        // Too short for artwork as well (e.g. split screen): controls only.
+        Column(
+          Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(pad),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(gap),
+        ) {
+          PlayerInfo(np, maxTitleLines = 2)
+          PlayerControlsSection(np, controls)
+        }
+      }
+      else -> {
+        Column(Modifier.fillMaxSize().padding(pad), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(gap)) {
+          // The largest square that fits in the space the controls leave.
+          Box(Modifier.weight(1f).fillMaxWidth(0.85f), contentAlignment = Alignment.Center) {
+            Artwork(np.artworkUrl, Modifier.aspectRatio(1f))
+          }
+          PlayerInfo(np, maxTitleLines = if (short) 2 else 3)
+          PlayerControlsSection(np, controls)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun PlayerInfo(np: NowPlaying, maxTitleLines: Int) {
+  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Text(np.title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, maxLines = maxTitleLines, overflow = TextOverflow.Ellipsis)
+    Text(np.podcastTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+  }
+}
+
+@Composable
+private fun PlayerControlsSection(np: NowPlaying, controls: PlayerControls) {
   // While dragging, show the thumb where the finger is rather than fighting position updates.
   var dragPosition by remember { mutableStateOf<Float?>(null) }
   val duration = np.durationMs ?: 0L
   val shownPosition = dragPosition?.let { (it * duration).toLong() } ?: np.positionMs
 
-  Column(
-    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(16.dp),
-  ) {
-    Artwork(np.artworkUrl, Modifier.fillMaxWidth(0.85f).aspectRatio(1f))
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-      Text(np.title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
-      Text(np.podcastTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-    }
+  Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Column {
       Slider(
         value = dragPosition ?: np.progress,
