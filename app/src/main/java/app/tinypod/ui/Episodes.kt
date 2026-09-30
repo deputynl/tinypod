@@ -25,7 +25,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DownloadForOffline
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DownloadForOffline
@@ -42,6 +43,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +73,12 @@ sealed interface EpisodeEvent {
 
   data class Play(override val episodeId: Long) : EpisodeEvent
 
+  /** Pauses it if it's playing, resumes it if it's loaded, plays it otherwise. */
+  data class PlayPause(override val episodeId: Long) : EpisodeEvent
+
+  /** Opens the episode's page. */
+  data class Open(override val episodeId: Long) : EpisodeEvent
+
   data class PlayNext(override val episodeId: Long) : EpisodeEvent
 
   data class AddToQueue(override val episodeId: Long) : EpisodeEvent
@@ -89,6 +98,9 @@ sealed interface EpisodeEvent {
   data class DeleteDownload(override val episodeId: Long) : EpisodeEvent
 }
 
+/** Opens an episode's page; provided by the navigation. */
+val LocalEpisodeNavigator = staticCompositionLocalOf<(Long) -> Unit> { {} }
+
 /** The ids of the queued episodes, so any row can offer "Remove from queue" instead of "Add to queue". */
 val LocalQueuedEpisodes = compositionLocalOf<Set<Long>> { emptySet() }
 
@@ -99,14 +111,18 @@ val LocalDownloadProgress = compositionLocalOf<Map<Long, Float?>> { emptyMap() }
 @Composable
 fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
   val player = LocalPlayer.current
+  val open = LocalEpisodeNavigator.current
   val app = LocalContext.current.applicationContext as TinypodApp
   val actions = app.episodeActions
   val downloads = app.downloads
   val scope = rememberCoroutineScope()
-  return remember(player, actions, downloads) {
+  return remember(player, actions, downloads, open) {
     { event ->
       when (event) {
         is EpisodeEvent.Play -> player.play(event.episodeId)
+        is EpisodeEvent.PlayPause ->
+          if (player.nowPlaying.value?.episodeId == event.episodeId) player.togglePlayPause() else player.play(event.episodeId)
+        is EpisodeEvent.Open -> open(event.episodeId)
         is EpisodeEvent.PlayNext -> scope.launch { actions.playNext(event.episodeId, playingId = player.nowPlaying.value?.episodeId) }
         is EpisodeEvent.AddToQueue -> scope.launch { actions.addToQueue(event.episodeId) }
         is EpisodeEvent.RemoveFromQueue -> scope.launch { actions.removeFromQueue(event.episodeId) }
@@ -240,7 +256,7 @@ private fun EpisodeRow(
   val e = row.episode
   var menuOpen by remember { mutableStateOf(false) }
   ListItem(
-    modifier = Modifier.clickable { onEvent(EpisodeEvent.Play(e.id)) },
+    modifier = Modifier.clickable { onEvent(EpisodeEvent.Open(e.id)) },
     leadingContent =
       if (showPodcast || dragHandle != null) {
         {
@@ -262,7 +278,7 @@ private fun EpisodeRow(
     supportingContent = { Text(episodeMeta(e)) },
     trailingContent = {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        if (isCurrent) Icon(Icons.Filled.GraphicEq, contentDescription = "Now playing", tint = MaterialTheme.colorScheme.primary)
+        PlayPauseButton(e.id, isPlaying = isCurrent && playingId() == e.id, onEvent)
         DownloadButton(e, deletable = inDownloads, onEvent)
         Box {
           IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Episode actions") }
@@ -289,9 +305,27 @@ private fun EpisodeRow(
   )
 }
 
+/** One-tap play from any list (tapping the row itself opens the episode's page). */
+@Composable
+private fun PlayPauseButton(episodeId: Long, isPlaying: Boolean, onEvent: (EpisodeEvent) -> Unit) {
+  IconButton(onClick = { onEvent(EpisodeEvent.PlayPause(episodeId)) }) {
+    if (isPlaying) Icon(Icons.Filled.Pause, contentDescription = "Pause", tint = MaterialTheme.colorScheme.primary)
+    else Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
+  }
+}
+
+/** The id of the episode that's playing right now (not just loaded), without recomposing on every position tick. */
+@Composable
+fun playingId(): Long? {
+  val player = LocalPlayer.current
+  val nowPlaying by player.nowPlaying.collectAsState()
+  val id by remember { derivedStateOf { nowPlaying?.takeIf { it.isPlaying }?.episodeId } }
+  return id
+}
+
 /** Download (not downloaded), progress ring that cancels (downloading), or a "downloaded" mark or delete button. */
 @Composable
-private fun DownloadButton(e: Episode, deletable: Boolean, onEvent: (EpisodeEvent) -> Unit) {
+internal fun DownloadButton(e: Episode, deletable: Boolean, onEvent: (EpisodeEvent) -> Unit) {
   when {
     e.isDownloaded && deletable ->
       IconButton(onClick = { onEvent(EpisodeEvent.DeleteDownload(e.id)) }) { Icon(Icons.Outlined.Delete, contentDescription = "Delete download") }
@@ -328,7 +362,7 @@ fun Artwork(url: String?, modifier: Modifier = Modifier) {
   )
 }
 
-private fun episodeMeta(e: Episode): String {
+internal fun episodeMeta(e: Episode): String {
   val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.publishedAt))
   val status =
     when {

@@ -28,6 +28,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class FolderDetail(val folderId: Long) : NavKey
 
+@Serializable data class EpisodeDetail(val episodeId: Long) : NavKey
+
 enum class Tab(val key: NavKey, val label: String, val icon: ImageVector) {
   New(NewEpisodes, "New", Icons.Filled.NewReleases),
   Library(app.tinypod.Library, "Library", Icons.Filled.VideoLibrary),

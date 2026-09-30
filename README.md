@@ -40,6 +40,10 @@ feeds (plus Apple's public podcast directory when you search).
 - **History**, grouped by day (Today, Yesterday, weekday, date).
 - **Downloads** for offline listening, with a storage overview. The player
   always prefers the downloaded file.
+- **Episode pages.** Tap an episode for its show notes, with working
+  links and chapter timestamps that jump straight to that point, plus
+  play, queue and download buttons. The ▶ on every row still plays in
+  one tap.
 - **Search within a podcast**, matching titles and show notes.
 - **Adapts to the screen.** Foldables, tablets and landscape get a side
   rail instead of the bottom bar, and the player fits any window without

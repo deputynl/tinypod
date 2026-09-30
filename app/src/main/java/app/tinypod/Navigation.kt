@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -25,6 +26,8 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.tinypod.ui.AddPodcastScreen
 import app.tinypod.ui.DownloadsScreen
+import app.tinypod.ui.EpisodeScreen
+import app.tinypod.ui.LocalEpisodeNavigator
 import app.tinypod.ui.FolderScreen
 import app.tinypod.ui.FullPlayerScreen
 import app.tinypod.ui.HistoryScreen
@@ -67,47 +70,51 @@ fun MainNavigation() {
       else Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
     // No top padding: screens handle the status bar themselves, so tinted ones can colour it too.
     Column(Modifier.fillMaxSize().then(bottomInset)) {
-      NavDisplay(
-        backStack = backStack,
-        modifier = Modifier.weight(1f),
-        onBack = { backStack.removeLastOrNull() },
-        // Gives each entry its own saved state and ViewModel scope, cleared when it leaves the stack.
-        entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-        entryProvider =
-          entryProvider {
-            entry<NewEpisodes> { BelowStatusBar { NewEpisodesScreen(vm, onAddPodcast = { backStack.add(AddPodcast) }) } }
-            entry<Library> {
-              BelowStatusBar {
-                LibraryScreen(
-                  vm,
-                  onPodcastClick = { backStack.add(PodcastDetail(it)) },
-                  onFolderClick = { backStack.add(FolderDetail(it)) },
-                  onAddPodcast = { backStack.add(AddPodcast) },
-                )
+      // Tapping an episode anywhere opens its page.
+      CompositionLocalProvider(LocalEpisodeNavigator provides { id -> backStack.add(EpisodeDetail(id)) }) {
+        NavDisplay(
+          backStack = backStack,
+          modifier = Modifier.weight(1f),
+          onBack = { backStack.removeLastOrNull() },
+          // Gives each entry its own saved state and ViewModel scope, cleared when it leaves the stack.
+          entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+          entryProvider =
+            entryProvider {
+              entry<NewEpisodes> { BelowStatusBar { NewEpisodesScreen(vm, onAddPodcast = { backStack.add(AddPodcast) }) } }
+              entry<Library> {
+                BelowStatusBar {
+                  LibraryScreen(
+                    vm,
+                    onPodcastClick = { backStack.add(PodcastDetail(it)) },
+                    onFolderClick = { backStack.add(FolderDetail(it)) },
+                    onAddPodcast = { backStack.add(AddPodcast) },
+                  )
+                }
               }
-            }
-            entry<AddPodcast> {
-              BelowStatusBar {
-                AddPodcastScreen(
-                  onSubscribed = { id ->
-                    backStack.removeLastOrNull()
-                    backStack.add(PodcastDetail(id))
-                  }
-                )
+              entry<AddPodcast> {
+                BelowStatusBar {
+                  AddPodcastScreen(
+                    onSubscribed = { id ->
+                      backStack.removeLastOrNull()
+                      backStack.add(PodcastDetail(id))
+                    }
+                  )
+                }
               }
-            }
-            entry<PodcastDetail> { key -> PodcastScreen(key.podcastId, onUnsubscribed = { backStack.removeLastOrNull() }) }
-            entry<FolderDetail> { key ->
-              BelowStatusBar {
-                FolderScreen(key.folderId, onPodcastClick = { backStack.add(PodcastDetail(it)) }, onDeleted = { backStack.removeLastOrNull() })
+              entry<PodcastDetail> { key -> PodcastScreen(key.podcastId, onUnsubscribed = { backStack.removeLastOrNull() }) }
+              entry<FolderDetail> { key ->
+                BelowStatusBar {
+                  FolderScreen(key.folderId, onPodcastClick = { backStack.add(PodcastDetail(it)) }, onDeleted = { backStack.removeLastOrNull() })
+                }
               }
-            }
-            entry<FullPlayer> { FullPlayerScreen() }
-            entry<Queue> { BelowStatusBar { QueueScreen(vm) } }
-            entry<History> { BelowStatusBar { HistoryScreen(vm) } }
-            entry<Downloads> { BelowStatusBar { DownloadsScreen(vm) } }
-          },
-      )
+              entry<EpisodeDetail> { key -> EpisodeScreen(key.episodeId, onPodcastClick = { backStack.add(PodcastDetail(it)) }) }
+              entry<FullPlayer> { FullPlayerScreen() }
+              entry<Queue> { BelowStatusBar { QueueScreen(vm) } }
+              entry<History> { BelowStatusBar { HistoryScreen(vm) } }
+              entry<Downloads> { BelowStatusBar { DownloadsScreen(vm) } }
+            },
+        )
+      }
       if (backStack.lastOrNull() != FullPlayer) MiniPlayer(onOpen = { backStack.add(FullPlayer) })
     }
   }

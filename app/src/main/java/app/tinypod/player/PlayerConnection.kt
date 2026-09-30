@@ -75,14 +75,17 @@ class PlayerConnection(private val context: Context) {
   }
 
   /** Plays [episodeId] from its saved position (the service resolves the id). */
-  fun play(episodeId: Long) {
+  /** Plays [episodeId] from its saved position, or from [fromMs] (e.g. a timestamp in the show notes). */
+  fun play(episodeId: Long, fromMs: Long? = null) {
     val c = controller ?: return
     if (_nowPlaying.value?.episodeId == episodeId) {
       if (c.playbackState == Player.STATE_IDLE) c.prepare()
+      fromMs?.let(c::seekTo)
       c.play()
       return
     }
-    c.setMediaItem(MediaItem.Builder().setMediaId(episodeId.toString()).build())
+    val item = MediaItem.Builder().setMediaId(episodeId.toString()).build()
+    if (fromMs != null) c.setMediaItem(item, fromMs) else c.setMediaItem(item)
     c.prepare()
     c.play()
   }
