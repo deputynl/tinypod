@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
@@ -28,10 +30,22 @@ android {
                 storeFile = keystore
             }
         }
+        // The Play upload key, also private: keystore/upload.properties holds its path and passwords.
+        val upload = rootProject.file("keystore/upload.properties")
+        if (upload.exists()) {
+            val props = Properties().apply { upload.inputStream().use { load(it) } }
+            create("upload") {
+                storeFile = rootProject.file("keystore/" + props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
