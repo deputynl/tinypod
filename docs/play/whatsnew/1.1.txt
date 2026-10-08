@@ -1,0 +1,6 @@
+• Settings (gear on the Library tab): go back a few seconds when resuming after a pause, continue with the podcast's next episode when the queue runs out, and choose whether finishing an episode clears older ones from New
+• New episodes are marked on podcast pages and in Android Auto
+• "Mark this and older as played"
+• Share a podcast or episode
+• Tap artwork to see it full size
+• Export and import your subscriptions, progress and queue
