@@ -22,21 +22,25 @@ feeds (plus Apple's public podcast directory when you search).
   hours in the background.
 - **New episodes.** The New tab lists episodes newer than the latest one
   you've finished (or than when you subscribed), across all shows. The
-  same count shows as a badge on each podcast and folder.
+  same count shows as a badge on each podcast and folder, and new
+  episodes are marked on a podcast's page. "Mark this and older as
+  played" catches up on a show in one go.
 - **Folders.** The library is a grid of artwork tiles; folders show a
   2×2 mosaic of the shows inside. Long-press a tile to move it to a
   folder, unsubscribe, or rename and delete folders.
 - **Player.** Mini player plus a full player with scrubber, back 10 s,
   forward 30 s and 1×–2× speed. The player and each podcast's page take
   their colours from the artwork, in light and dark mode, with contrast
-  kept readable for any cover.
+  kept readable for any cover. Tap any artwork to see it full size.
 - **Resume.** The position is saved every few seconds and on every
   pause. After a restart, or when Bluetooth or the car says "play", the
-  last episode resumes where it stopped.
+  last episode resumes where it stopped, going back 10 s if it's been
+  paused for a minute or more.
 - **Queue.** Episodes stay queued until you finish them, so you can
   switch between them freely. Reorder by dragging, or "Move to top/bottom"
   from the menu. When an episode ends the top of the queue plays; with an
-  empty queue playback simply stops.
+  empty queue playback stops, or optionally continues with the show's
+  next episode.
 - **History**, grouped by day (Today, Yesterday, weekday, date).
 - **Downloads** for offline listening, with a storage overview. The player
   always prefers the downloaded file.
@@ -45,6 +49,13 @@ feeds (plus Apple's public podcast directory when you search).
   play, queue and download buttons. The ▶ on every row still plays in
   one tap.
 - **Search within a podcast**, matching titles and show notes.
+- **Share** a podcast (its website and RSS feed) or an episode.
+- **Settings** (the gear on the Library tab) for the rewind amount,
+  continuing with the next episode, and whether finishing an episode
+  clears the older ones from New.
+- **Backup.** Export subscriptions, folders, progress, the queue and
+  settings to a JSON file, and import it on another phone or after a
+  reinstall. Importing merges; downloads aren't included.
 - **Adapts to the screen.** Foldables, tablets and landscape get a side
   rail instead of the bottom bar, and the player fits any window without
   scrolling.
@@ -54,7 +65,8 @@ feeds (plus Apple's public podcast directory when you search).
 Tinypod shows up as a media app in Android Auto:
 
 - Four tabs: **New**, **Library** (folders and podcasts as artwork tiles,
-  with "N new" under each), **Queue** and **Downloads**. Downloaded
+  with "N new" under each), **Queue** and **Downloads**. New episodes
+  say "New" under their title. Downloaded
   episodes carry the car's "downloaded" badge, and played / in-progress
   episodes show their progress.
 - The player screen has back 10 s, play/pause, forward 30 s and a speed

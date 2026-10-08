@@ -141,6 +141,8 @@ class BrowseTree(
           .setTitle(e.title)
           .setArtist(row.podcastTitle)
           .setAlbumTitle(row.podcastTitle)
+          // The car has no "new" badge; say so in the line under the title.
+          .setSubtitle(if (row.isNew) "New · ${row.podcastTitle}" else null)
           .setArtworkUri(artworkUri(e.podcastId, row.artworkUrl))
           .setDurationMs(e.durationMs)
           .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)

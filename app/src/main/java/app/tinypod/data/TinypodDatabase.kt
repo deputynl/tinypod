@@ -10,10 +10,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
   entities = [Folder::class, Podcast::class, Episode::class, QueueItem::class],
-  version = 4,
+  version = 5,
   autoMigrations = [
     AutoMigration(from = 1, to = 2), // Episode.durationMeasured
     AutoMigration(from = 2, to = 3), // Episode.downloadId
+    AutoMigration(from = 4, to = 5), // Podcast.link, Episode.link
   ],
 )
 abstract class TinypodDatabase : RoomDatabase() {

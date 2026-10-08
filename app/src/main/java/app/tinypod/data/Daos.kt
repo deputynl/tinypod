@@ -9,7 +9,10 @@ import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
-private const val EPISODE_ROW = "SELECT e.*, p.title AS podcastTitle, p.artworkUrl AS artworkUrl FROM Episode e JOIN Podcast p ON p.id = e.podcastId"
+/** Episodes with their podcast's title and artwork, and whether they're new (the same rule as [EpisodeDao.observeNew]). */
+private const val EPISODE_ROW =
+  "SELECT e.*, p.title AS podcastTitle, p.artworkUrl AS artworkUrl, p.link AS podcastLink, (e.isPlayed = 0 AND e.publishedAt >= p.newSince) AS isNew " +
+    "FROM Episode e JOIN Podcast p ON p.id = e.podcastId"
 
 @Dao
 interface FolderDao {
@@ -18,6 +21,9 @@ interface FolderDao {
 
   @Query("SELECT * FROM Folder WHERE id = :id")
   fun observe(id: Long): Flow<Folder?>
+
+  @Query("SELECT * FROM Folder")
+  suspend fun getAll(): List<Folder>
 
   @Insert suspend fun insert(folder: Folder): Long
 
@@ -53,9 +59,16 @@ interface PodcastDao {
 
   @Query(
     """UPDATE Podcast SET title = :title, author = :author, description = :description,
-       artworkUrl = COALESCE(:artworkUrl, artworkUrl), lastFetchedAt = :fetchedAt WHERE id = :id"""
+       artworkUrl = COALESCE(:artworkUrl, artworkUrl), link = :link, lastFetchedAt = :fetchedAt WHERE id = :id"""
   )
-  suspend fun updateFeedInfo(id: Long, title: String, author: String?, description: String?, artworkUrl: String?, fetchedAt: Long)
+  suspend fun updateFeedInfo(id: Long, title: String, author: String?, description: String?, artworkUrl: String?, link: String?, fetchedAt: Long)
+
+  /** Moves [Podcast.newSince] forward to [newSince], never backwards. */
+  @Query("UPDATE Podcast SET newSince = MAX(newSince, :newSince) WHERE id = :podcastId")
+  suspend fun raiseNewSince(podcastId: Long, newSince: Long)
+
+  @Query("UPDATE Podcast SET newSince = :newSince WHERE id = :podcastId")
+  suspend fun setNewSince(podcastId: Long, newSince: Long)
 
   @Query("UPDATE Podcast SET folderId = :folderId WHERE id = :podcastId")
   suspend fun setFolder(podcastId: Long, folderId: Long?)
@@ -119,17 +132,17 @@ interface EpisodeDao {
     """UPDATE Episode SET title = :title, audioUrl = :audioUrl,
        durationMs = CASE WHEN durationMeasured AND audioUrl = :audioUrl THEN durationMs ELSE COALESCE(:durationMs, durationMs) END,
        durationMeasured = durationMeasured AND audioUrl = :audioUrl,
-       description = :description
+       description = :description, link = :link
        WHERE podcastId = :podcastId AND guid = :guid"""
   )
-  suspend fun updateFeedFields(podcastId: Long, guid: String, title: String, audioUrl: String, durationMs: Long?, description: String?)
+  suspend fun updateFeedFields(podcastId: Long, guid: String, title: String, audioUrl: String, durationMs: Long?, description: String?, link: String?)
 
   /** Adds new episodes and refreshes feed-provided fields of known ones, leaving playback state alone. */
   @Transaction
   suspend fun upsertFromFeed(episodes: List<Episode>) {
     val ids = insertNew(episodes)
     episodes.forEachIndexed { i, e ->
-      if (ids[i] == -1L) updateFeedFields(e.podcastId, e.guid, e.title, e.audioUrl, e.durationMs, e.description)
+      if (ids[i] == -1L) updateFeedFields(e.podcastId, e.guid, e.title, e.audioUrl, e.durationMs, e.description, e.link)
     }
   }
 
@@ -143,15 +156,51 @@ interface EpisodeDao {
   @Query("UPDATE Episode SET isPlayed = :played, positionMs = 0 WHERE id = :id")
   suspend fun setPlayedState(id: Long, played: Boolean)
 
-  /** Marks an episode (un)played; marking it played counts as finishing it (see [advanceNewSince]). */
+  /**
+   * Marks an episode (un)played; marking it played counts as finishing it, so with [advanceNew] older
+   * episodes stop being new (see [advanceNewSince]).
+   */
   @Transaction
-  suspend fun setPlayed(id: Long, played: Boolean) {
+  suspend fun setPlayed(id: Long, played: Boolean, advanceNew: Boolean) {
     setPlayedState(id, played)
     if (played) {
-      advanceNewSince(id)
+      if (advanceNew) advanceNewSince(id)
       removeFromQueue(id)
     }
   }
+
+  @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0 WHERE podcastId = :podcastId AND publishedAt <= :publishedAt AND isPlayed = 0")
+  suspend fun markOlderPlayedState(podcastId: Long, publishedAt: Long)
+
+  @Query("DELETE FROM QueueItem WHERE episodeId IN (SELECT id FROM Episode WHERE podcastId = :podcastId AND publishedAt <= :publishedAt)")
+  suspend fun removeOlderFromQueue(podcastId: Long, publishedAt: Long)
+
+  /**
+   * Marks an episode and every older one of its podcast played, taking them out of the queue. Leaves
+   * [Episode.lastPlayedAt] alone, so they don't flood History.
+   */
+  @Transaction
+  suspend fun markOlderPlayed(episodeId: Long, advanceNew: Boolean) {
+    val episode = get(episodeId) ?: return
+    markOlderPlayedState(episode.podcastId, episode.publishedAt)
+    removeOlderFromQueue(episode.podcastId, episode.publishedAt)
+    if (advanceNew) advanceNewSince(episodeId)
+  }
+
+  /** The podcast's next unplayed episode published after [after], to continue with when the queue runs out. */
+  @Query("$EPISODE_ROW WHERE e.podcastId = :podcastId AND e.isPlayed = 0 AND e.publishedAt > :after ORDER BY e.publishedAt ASC LIMIT 1")
+  suspend fun nextInPodcast(podcastId: Long, after: Long): EpisodeWithPodcast?
+
+  /** Episodes with any playback state, for a backup. */
+  @Query("SELECT * FROM Episode WHERE isPlayed = 1 OR positionMs > 0 OR lastPlayedAt IS NOT NULL")
+  suspend fun getWithState(): List<Episode>
+
+  /** Restores an episode's playback state from a backup; does nothing if the feed no longer has it. */
+  @Query("UPDATE Episode SET isPlayed = :isPlayed, positionMs = :positionMs, lastPlayedAt = :lastPlayedAt WHERE podcastId = :podcastId AND guid = :guid")
+  suspend fun restoreState(podcastId: Long, guid: String, isPlayed: Boolean, positionMs: Long, lastPlayedAt: Long?)
+
+  @Query("SELECT id FROM Episode WHERE podcastId = :podcastId AND guid = :guid")
+  suspend fun findId(podcastId: Long, guid: String): Long?
 
   /** Hides an episode from History; its position is kept, so it still resumes where it was. */
   @Query("UPDATE Episode SET lastPlayedAt = NULL WHERE id = :id")
@@ -160,11 +209,11 @@ interface EpisodeDao {
   @Query("UPDATE Episode SET isPlayed = 1, positionMs = 0, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun markFinishedState(id: Long, playedAt: Long)
 
-  /** Records that an episode was listened to the end; it leaves the queue. */
+  /** Records that an episode was listened to the end; it leaves the queue. With [advanceNew], older ones stop being new. */
   @Transaction
-  suspend fun markFinished(id: Long, playedAt: Long) {
+  suspend fun markFinished(id: Long, playedAt: Long, advanceNew: Boolean) {
     markFinishedState(id, playedAt)
-    advanceNewSince(id)
+    if (advanceNew) advanceNewSince(id)
     removeFromQueue(id)
   }
 
@@ -197,6 +246,10 @@ interface QueueDao {
 
   @Query("SELECT episodeId FROM QueueItem ORDER BY position")
   suspend fun episodeIds(): List<Long>
+
+  /** The queue as feed URL + guid pairs, which survive reinstalling (database ids don't); for a backup. */
+  @Query("SELECT p.feedUrl AS feedUrl, e.guid AS guid FROM QueueItem q JOIN Episode e ON e.id = q.episodeId JOIN Podcast p ON p.id = e.podcastId ORDER BY q.position")
+  suspend fun entries(): List<QueueEntry>
 
   @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM QueueItem")
   suspend fun nextPosition(): Int

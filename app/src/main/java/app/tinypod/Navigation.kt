@@ -36,6 +36,7 @@ import app.tinypod.ui.MiniPlayer
 import app.tinypod.ui.NewEpisodesScreen
 import app.tinypod.ui.PodcastScreen
 import app.tinypod.ui.QueueScreen
+import app.tinypod.ui.SettingsScreen
 import app.tinypod.ui.TabsViewModel
 
 @Composable
@@ -88,6 +89,7 @@ fun MainNavigation() {
                     onPodcastClick = { backStack.add(PodcastDetail(it)) },
                     onFolderClick = { backStack.add(FolderDetail(it)) },
                     onAddPodcast = { backStack.add(AddPodcast) },
+                    onSettings = { backStack.add(SettingsPage) },
                   )
                 }
               }
@@ -109,6 +111,7 @@ fun MainNavigation() {
               }
               entry<EpisodeDetail> { key -> EpisodeScreen(key.episodeId, onPodcastClick = { backStack.add(PodcastDetail(it)) }) }
               entry<FullPlayer> { FullPlayerScreen() }
+              entry<SettingsPage> { BelowStatusBar { SettingsScreen() } }
               entry<Queue> { BelowStatusBar { QueueScreen(vm) } }
               entry<History> { BelowStatusBar { HistoryScreen(vm) } }
               entry<Downloads> { BelowStatusBar { DownloadsScreen(vm) } }

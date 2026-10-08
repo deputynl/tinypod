@@ -32,6 +32,7 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
         author = feed.author,
         description = feed.description,
         artworkUrl = feed.artworkUrl,
+        link = feed.link,
         lastFetchedAt = now,
         newSince = parsed.maxOfOrNull { it.publishedAt } ?: now,
       )
@@ -49,7 +50,7 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
     val now = System.currentTimeMillis()
     val feed = fetch(podcast.feedUrl)
     episodes.upsertFromFeed(feed.episodes.map { it.toEpisode(podcast.id, fallbackDate = now) })
-    podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.description, feed.artworkUrl, now)
+    podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.description, feed.artworkUrl, feed.link, now)
   }
 
   /**
@@ -91,6 +92,7 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
       publishedAt = publishedAt ?: fallbackDate,
       durationMs = durationMs,
       description = description,
+      link = link,
     )
 
   companion object {

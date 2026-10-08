@@ -54,7 +54,7 @@ fun NewEpisodesScreen(vm: TabsViewModel, onAddPodcast: () -> Unit) {
       if (podcasts.isEmpty()) {
         EmptyState("No podcasts yet.", action = "Add a podcast", onAction = onAddPodcast, scrollable = true)
       } else {
-        EpisodeList(rows, empty = "You're all caught up.", scrollableEmpty = true, currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
+        EpisodeList(rows, empty = "You're all caught up.", markNew = false, scrollableEmpty = true, currentId = currentEpisodeId(), onEvent = rememberEpisodeEventHandler())
       }
     }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))

@@ -20,6 +20,7 @@ class RssParserTest {
     assertEquals("Sample Network", feed.author)
     assertEquals("A <b>sample</b> podcast.", feed.description)
     assertEquals("https://example.com/art.jpg", feed.artworkUrl)
+    assertEquals("https://example.com/show", feed.link) // not the atom:link to the feed itself
   }
 
   @Test
@@ -33,12 +34,14 @@ class RssParserTest {
     assertEquals(millis("2026-09-22T06:00:00Z"), ep2.publishedAt)
     assertEquals(3_723_000L, ep2.durationMs)
     assertEquals("<p>Rich show notes</p>", ep2.description)
+    assertEquals("https://example.com/show/ep-2", ep2.link)
 
     val ep1 = episodes[1]
     assertEquals("https://cdn.example.com/ep1.mp3", ep1.audioUrl)
     assertEquals(millis("2026-09-07T09:30:00-05:00"), ep1.publishedAt)
     assertEquals(2_710_000L, ep1.durationMs)
     assertEquals("Summary only", ep1.description)
+    assertNull(ep1.link)
   }
 
   @Test(expected = FeedParseException::class)

@@ -23,12 +23,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
@@ -57,36 +59,42 @@ import app.tinypod.theme.TinypodTheme
 import kotlinx.coroutines.launch
 
 @Composable
-fun LibraryScreen(vm: TabsViewModel, onPodcastClick: (Long) -> Unit, onFolderClick: (Long) -> Unit, onAddPodcast: () -> Unit) {
+fun LibraryScreen(vm: TabsViewModel, onPodcastClick: (Long) -> Unit, onFolderClick: (Long) -> Unit, onAddPodcast: () -> Unit, onSettings: () -> Unit) {
   val folders by vm.folders.collectAsStateWithLifecycle()
   val podcasts by vm.podcasts.collectAsStateWithLifecycle()
   val newCounts by vm.newCounts.collectAsStateWithLifecycle()
   var dialog by remember { mutableStateOf<LibraryDialog?>(null) }
 
-  Box(Modifier.fillMaxSize()) {
-    if (folders.isEmpty() && podcasts.isEmpty()) {
-      EmptyState("No podcasts yet.\nTap + to add one.")
-    } else {
-      PodcastGrid(
-        folders = folders,
-        podcasts = podcasts.filter { it.folderId == null },
-        allPodcasts = podcasts,
-        newCounts = newCounts,
-        onPodcastClick = onPodcastClick,
-        onFolderClick = onFolderClick,
-        onDialog = { dialog = it },
-      )
+  Column(Modifier.fillMaxSize()) {
+    // A slim top row, so settings are at hand without taking room from the tiles.
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.End) {
+      IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
     }
-    // Stacked in the corner: they only ever cover the rightmost column, and stay within thumb reach.
-    Column(
-      Modifier.align(Alignment.BottomEnd).padding(16.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-      SmallFloatingActionButton(onClick = { dialog = LibraryDialog.NewFolder(forPodcast = null) }) {
-        Icon(Icons.Filled.CreateNewFolder, contentDescription = "New folder")
+    Box(Modifier.weight(1f)) {
+      if (folders.isEmpty() && podcasts.isEmpty()) {
+        EmptyState("No podcasts yet.\nTap + to add one.")
+      } else {
+        PodcastGrid(
+          folders = folders,
+          podcasts = podcasts.filter { it.folderId == null },
+          allPodcasts = podcasts,
+          newCounts = newCounts,
+          onPodcastClick = onPodcastClick,
+          onFolderClick = onFolderClick,
+          onDialog = { dialog = it },
+        )
       }
-      FloatingActionButton(onClick = onAddPodcast) { Icon(Icons.Filled.Add, contentDescription = "Add podcast") }
+      // Stacked in the corner: they only ever cover the rightmost column, and stay within thumb reach.
+      Column(
+        Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+      ) {
+        SmallFloatingActionButton(onClick = { dialog = LibraryDialog.NewFolder(forPodcast = null) }) {
+          Icon(Icons.Filled.CreateNewFolder, contentDescription = "New folder")
+        }
+        FloatingActionButton(onClick = onAddPodcast) { Icon(Icons.Filled.Add, contentDescription = "Add podcast") }
+      }
     }
   }
   LibraryDialogs(dialog, folders, onDialog = { dialog = it })
@@ -144,6 +152,7 @@ private fun GridLabel(text: String) {
 @Composable
 private fun PodcastTile(podcast: Podcast, newCount: Int, onClick: () -> Unit, onDialog: (LibraryDialog) -> Unit) {
   var menuOpen by remember { mutableStateOf(false) }
+  val context = LocalContext.current
   val haptics = LocalHapticFeedback.current
   Box {
     Column(
@@ -164,6 +173,7 @@ private fun PodcastTile(podcast: Podcast, newCount: Int, onClick: () -> Unit, on
     }
     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
       DropdownMenuItem(text = { Text("Move to folder…") }, onClick = { menuOpen = false; onDialog(LibraryDialog.MovePodcast(podcast)) })
+      DropdownMenuItem(text = { Text("Share") }, onClick = { menuOpen = false; share(context, podcastShareText(podcast)) })
       DropdownMenuItem(text = { Text("Unsubscribe") }, onClick = { menuOpen = false; onDialog(LibraryDialog.Unsubscribe(podcast)) })
     }
   }

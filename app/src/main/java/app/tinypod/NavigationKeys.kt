@@ -24,6 +24,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object FullPlayer : NavKey
 
+@Serializable data object SettingsPage : NavKey
+
 @Serializable data class PodcastDetail(val podcastId: Long) : NavKey
 
 @Serializable data class FolderDetail(val folderId: Long) : NavKey

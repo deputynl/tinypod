@@ -11,6 +11,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
@@ -53,12 +57,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import app.tinypod.TinypodApp
 import app.tinypod.data.Episode
 import app.tinypod.data.EpisodeWithPodcast
@@ -89,6 +101,11 @@ sealed interface EpisodeEvent {
 
   data class SetPlayed(override val episodeId: Long, val played: Boolean) : EpisodeEvent
 
+  /** Marks the episode and every older one of its podcast played. */
+  data class MarkOlderPlayed(override val episodeId: Long) : EpisodeEvent
+
+  data class Share(override val episodeId: Long) : EpisodeEvent
+
   data class RemoveFromHistory(override val episodeId: Long) : EpisodeEvent
 
   data class Download(override val episodeId: Long) : EpisodeEvent
@@ -112,11 +129,12 @@ val LocalDownloadProgress = compositionLocalOf<Map<Long, Float?>> { emptyMap() }
 fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
   val player = LocalPlayer.current
   val open = LocalEpisodeNavigator.current
-  val app = LocalContext.current.applicationContext as TinypodApp
+  val context = LocalContext.current
+  val app = context.applicationContext as TinypodApp
   val actions = app.episodeActions
   val downloads = app.downloads
   val scope = rememberCoroutineScope()
-  return remember(player, actions, downloads, open) {
+  return remember(player, actions, downloads, open, context) {
     { event ->
       when (event) {
         is EpisodeEvent.Play -> player.play(event.episodeId)
@@ -128,6 +146,8 @@ fun rememberEpisodeEventHandler(): (EpisodeEvent) -> Unit {
         is EpisodeEvent.RemoveFromQueue -> scope.launch { actions.removeFromQueue(event.episodeId) }
         is EpisodeEvent.MoveInQueue -> scope.launch { actions.moveInQueue(event.episodeId, event.toTop) }
         is EpisodeEvent.SetPlayed -> scope.launch { actions.setPlayed(event.episodeId, event.played) }
+        is EpisodeEvent.MarkOlderPlayed -> scope.launch { actions.markOlderPlayed(event.episodeId) }
+        is EpisodeEvent.Share -> scope.launch { app.database.episodeDao().getWithPodcast(event.episodeId)?.let { share(context, episodeShareText(it)) } }
         is EpisodeEvent.RemoveFromHistory -> scope.launch { actions.removeFromHistory(event.episodeId) }
         is EpisodeEvent.Download -> scope.launch { downloads.start(event.episodeId) }
         is EpisodeEvent.CancelDownload -> scope.launch { downloads.cancel(event.episodeId) }
@@ -150,6 +170,8 @@ fun EpisodeList(
   empty: String,
   modifier: Modifier = Modifier,
   showPodcast: Boolean = true,
+  /** Marks new episodes; pointless where every row is new. */
+  markNew: Boolean = true,
   inHistory: Boolean = false,
   inDownloads: Boolean = false,
   scrollableEmpty: Boolean = false,
@@ -223,7 +245,7 @@ fun EpisodeList(
             }
             .background(MaterialTheme.colorScheme.surface)
         ) {
-          EpisodeRow(row, showPodcast, inHistory, inDownloads, isCurrent = id == currentId, onEvent, handle, movable = reorderable)
+          EpisodeRow(row, showPodcast, markNew, inHistory, inDownloads, isCurrent = id == currentId, onEvent, handle, movable = reorderable)
           HorizontalDivider()
         }
       }
@@ -245,6 +267,7 @@ private fun SectionHeader(label: String) {
 private fun EpisodeRow(
   row: EpisodeWithPodcast,
   showPodcast: Boolean,
+  markNew: Boolean,
   inHistory: Boolean,
   inDownloads: Boolean,
   isCurrent: Boolean,
@@ -275,7 +298,7 @@ private fun EpisodeRow(
         color = if (e.isPlayed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
       )
     },
-    supportingContent = { Text(episodeMeta(e)) },
+    supportingContent = { Text(if (markNew && row.isNew) withNewMark(episodeMeta(e)) else AnnotatedString(episodeMeta(e))) },
     trailingContent = {
       Row(verticalAlignment = Alignment.CenterVertically) {
         PlayPauseButton(e.id, isPlaying = isCurrent && playingId() == e.id, onEvent)
@@ -296,6 +319,8 @@ private fun EpisodeRow(
             else DropdownMenuItem(text = { Text("Add to queue") }, onClick = { pick(EpisodeEvent.AddToQueue(e.id)) })
             if (e.isPlayed) DropdownMenuItem(text = { Text("Mark as unplayed") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, false)) })
             else DropdownMenuItem(text = { Text("Mark as played") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, true)) })
+            DropdownMenuItem(text = { Text("Mark this and older as played") }, onClick = { pick(EpisodeEvent.MarkOlderPlayed(e.id)) })
+            DropdownMenuItem(text = { Text("Share") }, onClick = { pick(EpisodeEvent.Share(e.id)) })
             if (inHistory) DropdownMenuItem(text = { Text("Remove from history") }, onClick = { pick(EpisodeEvent.RemoveFromHistory(e.id)) })
             if (e.isDownloaded) DropdownMenuItem(text = { Text("Delete download") }, onClick = { pick(EpisodeEvent.DeleteDownload(e.id)) })
           }
@@ -360,6 +385,53 @@ fun Artwork(url: String?, modifier: Modifier = Modifier) {
     contentScale = ContentScale.Crop,
     modifier = modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
   )
+}
+
+/** "● New · " in the primary colour before an episode's [episodeMeta]. */
+@Composable
+internal fun withNewMark(meta: String): AnnotatedString =
+  buildAnnotatedString {
+    withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)) { append("● New") }
+    append(" · ")
+    append(meta)
+  }
+
+/** [Artwork] that opens full size in an [ArtworkViewer] when tapped. */
+@Composable
+fun ViewableArtwork(url: String?, modifier: Modifier = Modifier) {
+  var viewing by remember { mutableStateOf(false) }
+  Artwork(url, modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = url != null, onClickLabel = "View artwork") { viewing = true })
+  if (viewing && url != null) ArtworkViewer(url, onDismiss = { viewing = false })
+}
+
+/** Artwork full screen on a dark backdrop; pinch to zoom, tap or back to close. */
+@Composable
+fun ArtworkViewer(url: String, onDismiss: () -> Unit) {
+  Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    val state = rememberTransformableState { zoom, pan, _ ->
+      scale = (scale * zoom).coerceIn(1f, 5f)
+      offset = if (scale == 1f) Offset.Zero else offset + pan
+    }
+    Box(
+      Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)).pointerInput(Unit) { detectTapGestures { onDismiss() } },
+      contentAlignment = Alignment.Center,
+    ) {
+      AsyncImage(
+        model = url,
+        contentDescription = "Artwork",
+        contentScale = ContentScale.Fit,
+        modifier =
+          Modifier.fillMaxSize().padding(16.dp).transformable(state).graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            translationX = offset.x
+            translationY = offset.y
+          },
+      )
+    }
+  }
 }
 
 internal fun episodeMeta(e: Episode): String {

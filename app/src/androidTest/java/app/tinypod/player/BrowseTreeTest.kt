@@ -52,6 +52,13 @@ class BrowseTreeTest {
   fun rootHasTheFourTabs() = runBlocking { assertEquals(listOf("new", "library", "queue", "downloads"), ids("root")) }
 
   @Test
+  fun newEpisodesSayNewUnderTheTitle() = runBlocking {
+    db.podcastDao().setNewSince(daily, 2_000) // only Daily 2 is new
+    val subtitles = tree.children("podcast/$daily")!!.associate { it.mediaMetadata.title.toString() to it.mediaMetadata.subtitle?.toString() }
+    assertEquals(mapOf("Daily 2" to "New · The Daily Thing", "Daily 1" to null), subtitles)
+  }
+
+  @Test
   fun libraryListsFoldersThenUnfiledPodcasts() = runBlocking {
     assertEquals(listOf("folder/$news", "podcast/$comedy"), ids("library"))
     assertEquals(listOf("podcast/$daily"), ids("folder/$news"))
@@ -61,7 +68,7 @@ class BrowseTreeTest {
   @Test
   fun podcastListsPlayableEpisodesWithProgress() = runBlocking {
     db.episodeDao().savePosition(1, positionMs = 25_000, playedAt = 5_000)
-    db.episodeDao().markFinished(2, playedAt = 6_000)
+    db.episodeDao().markFinished(2, playedAt = 6_000, advanceNew = true)
 
     val episodes = tree.children("podcast/$daily")!!
     assertEquals(listOf("2", "1"), episodes.map { it.mediaId })
@@ -86,7 +93,7 @@ class BrowseTreeTest {
     assertEquals("1 new", library["podcast/$comedy"]!!.mediaMetadata.subtitle)
     assertEquals("2 new", tree.children("folder/$news")!!.single().mediaMetadata.subtitle)
 
-    db.episodeDao().markFinished(2, playedAt = 9_000) // nothing newer left
+    db.episodeDao().markFinished(2, playedAt = 9_000, advanceNew = true) // nothing newer left
     assertEquals("1 podcast", tree.item("folder/$news")!!.mediaMetadata.subtitle)
   }
 

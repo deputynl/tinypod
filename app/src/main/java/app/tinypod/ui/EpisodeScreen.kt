@@ -140,7 +140,7 @@ private fun EpisodeHeader(row: EpisodeWithPodcast, onPodcastClick: () -> Unit) {
   val e = row.episode
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      Artwork(row.artworkUrl, Modifier.size(96.dp))
+      ViewableArtwork(row.artworkUrl, Modifier.size(96.dp))
       Column(Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
           "${row.podcastTitle} ›",
@@ -149,7 +149,7 @@ private fun EpisodeHeader(row: EpisodeWithPodcast, onPodcastClick: () -> Unit) {
           modifier = Modifier.clickable(onClickLabel = "Open podcast", onClick = onPodcastClick),
         )
         Text(e.title, style = MaterialTheme.typography.titleLarge)
-        Text(episodeMeta(e), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (row.isNew) withNewMark(episodeMeta(e)) else AnnotatedString(episodeMeta(e)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
     }
     val duration = e.durationMs
@@ -199,6 +199,8 @@ private fun EpisodeActions(row: EpisodeWithPodcast, isCurrent: Boolean, isPlayin
         if (!isCurrent) DropdownMenuItem(text = { Text("Play next") }, onClick = { pick(EpisodeEvent.PlayNext(e.id)) })
         if (e.isPlayed) DropdownMenuItem(text = { Text("Mark as unplayed") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, false)) })
         else DropdownMenuItem(text = { Text("Mark as played") }, onClick = { pick(EpisodeEvent.SetPlayed(e.id, true)) })
+        DropdownMenuItem(text = { Text("Mark this and older as played") }, onClick = { pick(EpisodeEvent.MarkOlderPlayed(e.id)) })
+        DropdownMenuItem(text = { Text("Share") }, onClick = { pick(EpisodeEvent.Share(e.id)) })
         if (e.isDownloaded) DropdownMenuItem(text = { Text("Delete download") }, onClick = { pick(EpisodeEvent.DeleteDownload(e.id)) })
       }
     }

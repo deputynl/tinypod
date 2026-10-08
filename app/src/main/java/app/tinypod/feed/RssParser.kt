@@ -15,6 +15,8 @@ data class ParsedFeed(
   val description: String?,
   val artworkUrl: String?,
   val episodes: List<ParsedEpisode>,
+  /** The show's website. */
+  val link: String? = null,
 )
 
 data class ParsedEpisode(
@@ -25,6 +27,8 @@ data class ParsedEpisode(
   val publishedAt: Long?,
   val durationMs: Long?,
   val description: String?,
+  /** The episode's web page. */
+  val link: String? = null,
 )
 
 class FeedParseException(message: String) : Exception(message)
@@ -47,6 +51,7 @@ class RssParser(private val newParser: () -> XmlPullParser = { Xml.newPullParser
     var description: String? = null
     var itunesImage: String? = null
     var rssImage: String? = null
+    var link: String? = null
     val episodes = mutableListOf<ParsedEpisode>()
     var sawChannel = false
 
@@ -62,6 +67,7 @@ class RssParser(private val newParser: () -> XmlPullParser = { Xml.newPullParser
         "itunes:summary" -> description = description ?: parser.text()
         "itunes:image" -> itunesImage = parser.getAttributeValue(null, "href")?.trim()
         "image" -> rssImage = parser.readImageUrl()
+        "link" -> link = parser.text() // atom:link (the feed's own URL) has a namespace, so it's not this
         "item" -> parser.readItem()?.let(episodes::add)
       }
     }
@@ -73,6 +79,7 @@ class RssParser(private val newParser: () -> XmlPullParser = { Xml.newPullParser
       description = description?.takeIf { it.isNotBlank() },
       artworkUrl = (itunesImage ?: rssImage)?.takeIf { it.isNotBlank() },
       episodes = episodes,
+      link = link?.takeIf { it.isNotBlank() },
     )
   }
 
@@ -86,6 +93,7 @@ class RssParser(private val newParser: () -> XmlPullParser = { Xml.newPullParser
     var description: String? = null
     var summary: String? = null
     var contentEncoded: String? = null
+    var link: String? = null
 
     while (!(next() == XmlPullParser.END_TAG && depth == itemDepth)) {
       if (eventType == XmlPullParser.END_DOCUMENT) break
@@ -99,6 +107,7 @@ class RssParser(private val newParser: () -> XmlPullParser = { Xml.newPullParser
         "description" -> description = text()
         "itunes:summary" -> summary = text()
         "content:encoded" -> contentEncoded = text()
+        "link" -> link = text()
       }
     }
 
@@ -110,6 +119,7 @@ class RssParser(private val newParser: () -> XmlPullParser = { Xml.newPullParser
       publishedAt = pubDate?.let(::parseRssDate),
       durationMs = duration?.let(::parseDuration),
       description = listOf(contentEncoded, description, summary).firstOrNull { !it.isNullOrBlank() },
+      link = link?.takeIf { it.isNotBlank() },
     )
   }
 

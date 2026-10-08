@@ -120,7 +120,7 @@ fun FullPlayerContent(np: NowPlaying, controls: PlayerControls) {
       wide -> {
         val artSize = min(maxHeight - pad * 2, maxWidth * 0.45f)
         Row(Modifier.fillMaxSize().padding(pad), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(pad)) {
-          Artwork(np.artworkUrl, Modifier.size(artSize))
+          ViewableArtwork(np.artworkUrl, Modifier.size(artSize))
           // Scrolls only as a last resort, in windows too short for the controls.
           Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -147,7 +147,7 @@ fun FullPlayerContent(np: NowPlaying, controls: PlayerControls) {
         Column(Modifier.fillMaxSize().padding(pad), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(gap)) {
           // The largest square that fits in the space the controls leave.
           Box(Modifier.weight(1f).fillMaxWidth(0.85f), contentAlignment = Alignment.Center) {
-            Artwork(np.artworkUrl, Modifier.aspectRatio(1f))
+            ViewableArtwork(np.artworkUrl, Modifier.aspectRatio(1f))
           }
           PlayerInfo(np, maxTitleLines = if (short) 2 else 3)
           PlayerControlsSection(np, controls)

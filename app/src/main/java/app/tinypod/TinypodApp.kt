@@ -1,10 +1,12 @@
 package app.tinypod
 
 import android.app.Application
+import app.tinypod.data.Backup
 import app.tinypod.data.Downloads
 import app.tinypod.data.EpisodeActions
 import app.tinypod.data.LibraryActions
 import app.tinypod.data.PodcastRepository
+import app.tinypod.data.Settings
 import app.tinypod.data.TinypodDatabase
 import app.tinypod.feed.RefreshWorker
 import kotlinx.coroutines.CoroutineScope
@@ -16,10 +18,12 @@ class TinypodApp : Application() {
   /** For work that should outlive any one screen, such as download bookkeeping. */
   val scope = CoroutineScope(SupervisorJob())
   val database: TinypodDatabase by lazy { TinypodDatabase.create(this) }
+  val settings: Settings by lazy { Settings(this) }
   val downloads: Downloads by lazy { Downloads(this, database) }
   val repository: PodcastRepository by lazy { PodcastRepository(database, downloads) }
-  val episodeActions: EpisodeActions by lazy { EpisodeActions(database) }
+  val episodeActions: EpisodeActions by lazy { EpisodeActions(database, settings) }
   val libraryActions: LibraryActions by lazy { LibraryActions(database, repository) }
+  val backup: Backup by lazy { Backup(database, repository, settings) }
 
   override fun onCreate() {
     super.onCreate()

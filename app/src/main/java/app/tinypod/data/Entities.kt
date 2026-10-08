@@ -37,6 +37,8 @@ data class Podcast(
    * you've listened to are new.
    */
   val newSince: Long = 0,
+  /** The show's website (the channel's <link>), for sharing. */
+  val link: String? = null,
 )
 
 /**
@@ -68,6 +70,8 @@ data class Episode(
   val lastPlayedAt: Long? = null,
   val localFilePath: String? = null,
   val downloadId: Long? = null,
+  /** The episode's web page (the item's <link>), for sharing. */
+  val link: String? = null,
 ) {
   val isDownloaded: Boolean
     get() = localFilePath != null
@@ -92,6 +96,10 @@ data class EpisodeWithPodcast(
   @Embedded val episode: Episode,
   val podcastTitle: String,
   val artworkUrl: String?,
+  /** Unplayed and newer than the podcast's [Podcast.newSince]: listed on the New tab. */
+  val isNew: Boolean = false,
+  /** The podcast's website, for sharing an episode that has no page of its own. */
+  val podcastLink: String? = null,
 )
 
 /** An episode being downloaded, and its DownloadManager id. */
@@ -99,3 +107,6 @@ data class ActiveDownload(val episodeId: Long, val downloadId: Long)
 
 /** A number per podcast, such as its count of new episodes. */
 data class PodcastCount(val podcastId: Long, val count: Int)
+
+/** A queued episode identified by its feed and guid, as stored in a backup. */
+data class QueueEntry(val feedUrl: String, val guid: String)

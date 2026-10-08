@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
@@ -213,8 +215,9 @@ fun PodcastContent(
 
 @Composable
 private fun PodcastHeader(podcast: Podcast, folderName: String?, onFolderClick: () -> Unit, onUnsubscribe: () -> Unit) {
+  val context = LocalContext.current
   Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-    Artwork(podcast.artworkUrl, Modifier.size(96.dp))
+    ViewableArtwork(podcast.artworkUrl, Modifier.size(96.dp))
     Column(Modifier.padding(start = 16.dp)) {
       Text(podcast.title, style = MaterialTheme.typography.headlineSmall)
       podcast.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -224,6 +227,7 @@ private fun PodcastHeader(podcast: Podcast, folderName: String?, onFolderClick: 
           Text(folderName ?: "Add to folder", Modifier.padding(start = 6.dp))
         }
         TextButton(onClick = onUnsubscribe, contentPadding = PaddingValues(horizontal = 16.dp)) { Text("Unsubscribe") }
+        IconButton(onClick = { share(context, podcastShareText(podcast)) }) { Icon(Icons.Filled.Share, contentDescription = "Share podcast", tint = MaterialTheme.colorScheme.primary) }
       }
     }
   }

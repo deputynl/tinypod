@@ -1,9 +1,7 @@
 package app.tinypod.player
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -52,7 +50,7 @@ import kotlinx.coroutines.sync.withLock
 class PlaybackService : MediaLibraryService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val db by lazy { (application as TinypodApp).database }
-  private val prefs by lazy { getSharedPreferences("player", Context.MODE_PRIVATE) }
+  private val settings by lazy { (application as TinypodApp).settings }
   private lateinit var player: ExoPlayer
   private var session: MediaLibrarySession? = null
   private val tree by lazy { BrowseTree(db, ArtworkProvider::uriFor, ArtworkProvider::folderUriFor) }
@@ -62,6 +60,13 @@ class PlaybackService : MediaLibraryService() {
 
   /** Whether the current item's real length has been stored yet (see [saveMeasuredDuration]). */
   private var durationSaved = false
+
+  /**
+   * When the loaded episode was paused (or last played, if it was loaded at its saved position), so
+   * playing it again after a long enough break can go back a little (see [resumePosition]). Null once
+   * resumed, or after the user picks a position.
+   */
+  private var pausedAt: Long? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -76,7 +81,7 @@ class PlaybackService : MediaLibraryService() {
         .setSeekBackIncrementMs(SKIP_BACK_MS)
         .setSeekForwardIncrementMs(SKIP_FORWARD_MS)
         .build()
-    player.playbackParameters = PlaybackParameters(prefs.getFloat(KEY_SPEED, 1f))
+    player.playbackParameters = PlaybackParameters(settings.speed.value)
     player.addListener(PlayerListener())
     session =
       MediaLibrarySession.Builder(this, SkipButtonsPlayer(player), LibraryCallback()).setMediaButtonPreferences(mediaButtons()).build()
@@ -84,6 +89,8 @@ class PlaybackService : MediaLibraryService() {
     scope.launch { restoreLastEpisode() }
     // Queue changes (from the phone or the car) update the player's playlist right away.
     scope.launch { db.queueDao().observeIds().collect { syncPlaylist() } }
+    // The speed can also change outside the player, by importing a backup.
+    scope.launch { settings.speed.collect { if (player.playbackParameters.speed != it) player.playbackParameters = PlaybackParameters(it) } }
     scope.launch {
       while (isActive) {
         delay(SAVE_INTERVAL_MS)
@@ -115,6 +122,7 @@ class PlaybackService : MediaLibraryService() {
     if (player.mediaItemCount > 0) return // a controller got there first
     player.setMediaItem(row.toMediaItem(), row.episode.positionMs)
     player.prepare()
+    pausedAt = row.episode.lastPlayedAt
   }
 
   private fun currentEpisodeId(): Long? = player.currentMediaItem?.mediaId?.toLongOrNull()
@@ -144,7 +152,10 @@ class PlaybackService : MediaLibraryService() {
   private suspend fun resumeAtSavedPosition() {
     val id = currentEpisodeId() ?: return
     val episode = db.episodeDao().get(id) ?: return
-    if (!episode.isPlayed && episode.positionMs > 0 && currentEpisodeId() == id) player.seekTo(episode.positionMs)
+    if (!episode.isPlayed && episode.positionMs > 0 && currentEpisodeId() == id) {
+      player.seekTo(episode.positionMs)
+      pausedAt = episode.lastPlayedAt // after the seek, which clears it
+    }
   }
 
   private suspend fun savePosition() {
@@ -202,21 +213,41 @@ class PlaybackService : MediaLibraryService() {
 
   /**
    * When an episode ends it's marked finished (which takes it out of the queue) and the top of the
-   * queue plays; it stays queued until finished too. With an empty queue, playback simply stops.
+   * queue plays; it stays queued until finished too. With an empty queue, playback stops, or (if
+   * [Settings.continueWithNext][app.tinypod.data.Settings.continueWithNext]) moves on to the podcast's
+   * next newer unplayed episode.
    */
   private suspend fun onEpisodeEnded() {
-    currentEpisodeId()?.let { db.episodeDao().markFinished(it, System.currentTimeMillis()) }
-    val next = db.queueDao().first()?.let { db.episodeDao().getWithPodcast(it) } ?: return
+    val ended = currentEpisodeId()?.let { db.episodeDao().get(it) }
+    ended?.let { db.episodeDao().markFinished(it.id, System.currentTimeMillis(), advanceNew = settings.clearOlderOnFinish.value) }
+    val next =
+      db.queueDao().first()?.let { db.episodeDao().getWithPodcast(it) }
+        ?: ended?.takeIf { settings.continueWithNext.value }?.let { db.episodeDao().nextInPodcast(it.podcastId, it.publishedAt) }
+        ?: return
     player.setMediaItem(next.toMediaItem(), next.episode.positionMs)
     player.prepare()
+    pausedAt = next.episode.lastPlayedAt
     player.play()
+  }
+
+  /** Going back a little when playing again after a break, so it's easier to pick up the thread. */
+  private fun rewindAfterPause() {
+    val since = pausedAt ?: return
+    pausedAt = null
+    val rewindMs = settings.rewindOnResumeSec.value * 1000L
+    resumePosition(player.currentPosition, since, System.currentTimeMillis(), rewindMs)?.let(player::seekTo)
   }
 
   private inner class PlayerListener : Player.Listener {
     override fun onIsPlayingChanged(isPlaying: Boolean) {
-      if (isPlaying) playedSinceLoad = true
-      // Save on pause too, not just periodically, so stopping is always precise.
-      else scope.launch { savePosition() }
+      if (isPlaying) {
+        playedSinceLoad = true
+        rewindAfterPause()
+      } else {
+        if (playedSinceLoad && player.playbackState != Player.STATE_ENDED) pausedAt = System.currentTimeMillis()
+        // Save on pause too, not just periodically, so stopping is always precise.
+        scope.launch { savePosition() }
+      }
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -250,7 +281,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
-      prefs.edit { putFloat(KEY_SPEED, playbackParameters.speed) }
+      settings.setSpeed(playbackParameters.speed)
       session?.setMediaButtonPreferences(mediaButtons()) // the speed button shows the current speed
     }
 
@@ -260,12 +291,16 @@ class PlaybackService : MediaLibraryService() {
         // Left one episode for the next: it either played to the end, or was switched away from.
         val now = System.currentTimeMillis()
         when (reason) {
-          Player.DISCONTINUITY_REASON_AUTO_TRANSITION -> scope.launch { db.episodeDao().markFinished(oldId, now) }
+          Player.DISCONTINUITY_REASON_AUTO_TRANSITION ->
+            scope.launch { db.episodeDao().markFinished(oldId, now, advanceNew = settings.clearOlderOnFinish.value) }
           Player.DISCONTINUITY_REASON_SEEK -> if (playedSinceLoad) scope.launch { db.episodeDao().savePosition(oldId, oldPosition.positionMs, now) }
         }
         return
       }
-      if (reason == Player.DISCONTINUITY_REASON_SEEK) scope.launch { savePosition() }
+      if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+        if (oldId != null) pausedAt = null // a position the user picked is respected
+        scope.launch { savePosition() }
+      }
     }
   }
 
@@ -321,7 +356,10 @@ class PlaybackService : MediaLibraryService() {
             listOfNotNull(tree.forVoiceQuery(mediaItems.firstOrNull()?.requestMetadata?.searchQuery))
           }
         val index = startIndex.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
-        val position = if (startPositionMs == C.TIME_UNSET) rows.getOrNull(index)?.episode?.positionMs ?: 0 else startPositionMs
+        val episode = rows.getOrNull(index)?.episode
+        val position = if (startPositionMs == C.TIME_UNSET) episode?.positionMs ?: 0 else startPositionMs
+        // Resuming at the saved position may go back a little; a position asked for is played as is.
+        pausedAt = episode?.takeIf { startPositionMs == C.TIME_UNSET && it.positionMs > 0 && !it.isPlayed }?.lastPlayedAt
         MediaItemsWithStartPosition(rows.map { it.toMediaItem() }, index, position)
       }
 
@@ -332,6 +370,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, isForPlayback: Boolean) =
       scope.future {
         val row = db.episodeDao().resumable() ?: throw UnsupportedOperationException("Nothing to resume")
+        pausedAt = row.episode.lastPlayedAt
         MediaItemsWithStartPosition(listOf(row.toMediaItem()), 0, row.episode.positionMs)
       }
   }
@@ -355,7 +394,6 @@ class PlaybackService : MediaLibraryService() {
         else -> CommandButton.ICON_PLAYBACK_SPEED // no ready-made icon for 1.25×
       }
     private const val SAVE_INTERVAL_MS = 5_000L
-    private const val KEY_SPEED = "speed"
 
     /** A playable item for an episode: the downloaded file if present, otherwise the stream URL. */
     fun EpisodeWithPodcast.toMediaItem(): MediaItem {

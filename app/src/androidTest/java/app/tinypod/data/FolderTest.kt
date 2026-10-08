@@ -43,7 +43,7 @@ class FolderTest {
       Episode(podcastId = podcast, guid = "$podcast-$n", title = "Ep $n", audioUrl = "https://x.example/$podcast/$n.mp3", publishedAt = published)
     // Show A: one from before subscribing (not new), two new, of which the older one gets finished.
     db.episodeDao().insertNew(listOf(ep(a, 1, 1_000), ep(a, 2, 2_000), ep(a, 3, 3_000), ep(b, 1, 1_000)))
-    db.episodeDao().markFinished(2, playedAt = 4_000)
+    db.episodeDao().markFinished(2, playedAt = 4_000, advanceNew = true)
 
     val counts = db.episodeDao().observeNewCounts().first().associate { it.podcastId to it.count }
     assertEquals(mapOf(a to 1, b to 1), counts)

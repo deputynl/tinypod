@@ -53,7 +53,7 @@ class QueueTest {
     episodes.savePosition(2, positionMs = 60_000, playedAt = 10_000)
     assertEquals(listOf(1L, 2L, 3L), queue.episodeIds())
 
-    episodes.markFinished(2, playedAt = 11_000)
+    episodes.markFinished(2, playedAt = 11_000, advanceNew = true)
     assertEquals(listOf(1L, 3L), queue.episodeIds())
     assertEquals(1L, queue.first()) // the top plays next
   }
@@ -71,7 +71,7 @@ class QueueTest {
   @Test
   fun aDraggedOrderIsReconciledWithChangesDuringTheDrag() = runBlocking {
     // Dragged 3 to the top, while meanwhile 2 was finished and 4 queued.
-    episodes.markFinished(2, playedAt = 1)
+    episodes.markFinished(2, playedAt = 1, advanceNew = true)
     queue.append(4)
     queue.reorder(listOf(3L, 1L, 2L))
     assertEquals(listOf(3L, 1L, 4L), queue.episodeIds())
@@ -79,9 +79,9 @@ class QueueTest {
 
   @Test
   fun markingPlayedRemovesItButUnplayedDoesNotQueueIt() = runBlocking {
-    episodes.setPlayed(1, played = true)
+    episodes.setPlayed(1, played = true, advanceNew = true)
     assertEquals(listOf(2L, 3L), queue.episodeIds())
-    episodes.setPlayed(1, played = false)
+    episodes.setPlayed(1, played = false, advanceNew = true)
     assertEquals(listOf(2L, 3L), queue.episodeIds())
   }
 }
