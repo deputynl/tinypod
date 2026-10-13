@@ -1,0 +1,8 @@
+• Tap the playback notification or lock screen player to open the player
+• The bottom bar takes the artwork colours of podcast and player pages
+• New setting: hide played episodes on podcast pages
+• Episodes count as played at 98%
+• Unchanged feeds aren't downloaded again
+• Backups are now OPML, and subscriptions can be imported from other apps (old JSON backups can't be read)
+• Android Auto shows 1.2 on the speed button at 1.25×
+• Fixed: progress not saved after moving on to the next episode
