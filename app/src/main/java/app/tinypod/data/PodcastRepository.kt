@@ -1,10 +1,12 @@
 package app.tinypod.data
 
 import android.util.Log
+import app.tinypod.feed.Conditional
 import app.tinypod.feed.Http
 import app.tinypod.feed.ParsedEpisode
 import app.tinypod.feed.ParsedFeed
 import app.tinypod.feed.RssParser
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -23,7 +25,9 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
     podcasts.findByFeedUrl(url)?.let { return it }
 
     val now = System.currentTimeMillis()
-    val feed = fetch(url)
+    // Nothing was asked conditionally, so "not modified" would be a broken server.
+    val fetched = fetch(url, etag = null, lastModified = null) as? Conditional.Fetched ?: throw IOException("No feed at $url")
+    val feed = fetched.value
     val parsed = feed.episodes.map { it.toEpisode(podcastId = 0, fallbackDate = now) }
     val podcast =
       Podcast(
@@ -35,6 +39,8 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
         link = feed.link,
         lastFetchedAt = now,
         newSince = parsed.maxOfOrNull { it.publishedAt } ?: now,
+        etag = fetched.etag,
+        lastModified = fetched.lastModified,
       )
     val id = podcasts.insert(podcast)
     episodes.upsertFromFeed(parsed.map { it.copy(podcastId = id) })
@@ -46,11 +52,17 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
     podcasts.delete(podcast)
   }
 
+  /** Fetches the podcast's feed again, unless the server says it hasn't changed since last time. */
   suspend fun refresh(podcast: Podcast) {
     val now = System.currentTimeMillis()
-    val feed = fetch(podcast.feedUrl)
-    episodes.upsertFromFeed(feed.episodes.map { it.toEpisode(podcast.id, fallbackDate = now) })
-    podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.description, feed.artworkUrl, feed.link, now)
+    when (val result = fetch(podcast.feedUrl, podcast.etag, podcast.lastModified)) {
+      Conditional.NotModified -> podcasts.markFetched(podcast.id, now)
+      is Conditional.Fetched -> {
+        val feed = result.value
+        episodes.upsertFromFeed(feed.episodes.map { it.toEpisode(podcast.id, fallbackDate = now) })
+        podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.description, feed.artworkUrl, feed.link, now, result.etag, result.lastModified)
+      }
+    }
   }
 
   /**
@@ -81,7 +93,8 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
     return failures.get()
   }
 
-  private suspend fun fetch(url: String): ParsedFeed = Http.get(url) { parser.parse(it) }
+  private suspend fun fetch(url: String, etag: String?, lastModified: String?): Conditional<ParsedFeed> =
+    Http.getIfChanged(url, etag, lastModified) { parser.parse(it) }
 
   private fun ParsedEpisode.toEpisode(podcastId: Long, fallbackDate: Long) =
     Episode(

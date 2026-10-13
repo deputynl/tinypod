@@ -33,6 +33,11 @@ class Settings(context: Context) {
   /** How far to go back when resuming after a pause of a minute or more; 0 for not at all. */
   val rewindOnResumeSec: StateFlow<Int> = _rewindOnResumeSec.asStateFlow()
 
+  private val _hidePlayed = MutableStateFlow(prefs.getBoolean(KEY_HIDE_PLAYED, false))
+
+  /** A podcast's page lists only its unplayed episodes (searching still finds them all). */
+  val hidePlayed: StateFlow<Boolean> = _hidePlayed.asStateFlow()
+
   private val _speed = MutableStateFlow(prefs.getFloat(KEY_SPEED, 1f))
 
   /** The playback speed, shared by every episode. */
@@ -53,6 +58,11 @@ class Settings(context: Context) {
     _rewindOnResumeSec.value = value
   }
 
+  fun setHidePlayed(value: Boolean) {
+    prefs.edit { putBoolean(KEY_HIDE_PLAYED, value) }
+    _hidePlayed.value = value
+  }
+
   fun setSpeed(value: Float) {
     prefs.edit { putFloat(KEY_SPEED, value) }
     _speed.value = value
@@ -65,6 +75,7 @@ class Settings(context: Context) {
     private const val KEY_CLEAR_OLDER = "clearOlderOnFinish"
     private const val KEY_CONTINUE = "continueWithNext"
     private const val KEY_REWIND = "rewindOnResumeSec"
+    private const val KEY_HIDE_PLAYED = "hidePlayed"
     private const val KEY_SPEED = "speed"
   }
 }

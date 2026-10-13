@@ -27,7 +27,7 @@ class BackupTest {
 
   @Before
   fun saveSettings() {
-    saved = BackupSettings(settings.clearOlderOnFinish.value, settings.continueWithNext.value, settings.rewindOnResumeSec.value, settings.speed.value)
+    saved = BackupSettings(settings.clearOlderOnFinish.value, settings.continueWithNext.value, settings.rewindOnResumeSec.value, settings.speed.value, settings.hidePlayed.value)
   }
 
   @After
@@ -36,6 +36,7 @@ class BackupTest {
     settings.setContinueWithNext(saved.continueWithNext)
     settings.setRewindOnResumeSec(saved.rewindOnResumeSec)
     settings.setSpeed(saved.speed)
+    settings.setHidePlayed(saved.hidePlayed)
     databases.forEach { it.close() }
   }
 
@@ -101,5 +102,31 @@ class BackupTest {
     repeat(2) { backupFor(target).import(ByteArrayInputStream(out.toByteArray())) }
 
     assertEquals(listOf(3L), target.queueDao().episodeIds())
+  }
+
+  @Test
+  fun importingAnotherAppsOpmlOnlyFilesThePodcasts() = runBlocking {
+    val target = freshLibrary()
+    target.episodeDao().savePosition(2, positionMs = 60_000, playedAt = 6_000)
+    target.queueDao().append(2)
+    settings.setRewindOnResumeSec(5)
+    val other =
+      """<?xml version="1.0" encoding="utf-8"?>
+        <opml version="1.0"><head><title>Exported</title></head><body>
+          <outline text="Comedy"><outline type="rss" text="Show a" xmlUrl="https://a.example/rss"/></outline>
+          <outline type="rss" text="Show b" xmlUrl="https://b.example/rss"/>
+        </body></opml>"""
+
+    val result = backupFor(target).import(ByteArrayInputStream(other.toByteArray()))
+
+    assertEquals(ImportResult(podcasts = 2, subscribed = 0, failed = 0), result)
+    val folder = target.folderDao().getAll().single()
+    assertEquals("Comedy", folder.name)
+    assertEquals(folder.id, target.podcastDao().getAll().single { it.feedUrl == "https://a.example/rss" }.folderId)
+    // Everything the file doesn't mention is left alone.
+    assertEquals(60_000L, target.episodeDao().get(2)!!.positionMs)
+    assertEquals(listOf(2L), target.queueDao().episodeIds())
+    assertEquals(5, settings.rewindOnResumeSec.value)
+    assertEquals(3_000L, target.podcastDao().getAll().first().newSince)
   }
 }

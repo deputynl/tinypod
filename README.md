@@ -19,7 +19,8 @@ feeds (plus Apple's public podcast directory when you search).
 
 - **Subscriptions.** Search Apple's podcast directory by name, or paste
   any RSS feed URL. Feeds refresh when you open the app and every four
-  hours in the background.
+  hours in the background; a feed that hasn't changed isn't downloaded
+  again.
 - **New episodes.** The New tab lists episodes newer than the latest one
   you've finished (or than when you subscribed), across all shows. The
   same count shows as a badge on each podcast and folder, and new
@@ -33,7 +34,8 @@ feeds (plus Apple's public podcast directory when you search).
   their colours from the artwork, in light and dark mode, with contrast
   kept readable for any cover. Tap any artwork to see it full size.
 - **Resume.** The position is saved every few seconds and on every
-  pause. After a restart, or when Bluetooth or the car says "play", the
+  pause. Past 98% an episode counts as finished, so a skipped outro or
+  closing ad doesn't leave it half-played. After a restart, or when Bluetooth or the car says "play", the
   last episode resumes where it stopped, going back 10 s if it's been
   paused for a minute or more.
 - **Queue.** Episodes stay queued until you finish them, so you can
@@ -51,11 +53,14 @@ feeds (plus Apple's public podcast directory when you search).
 - **Search within a podcast**, matching titles and show notes.
 - **Share** a podcast (its website and RSS feed) or an episode.
 - **Settings** (the gear on the Library tab) for the rewind amount,
-  continuing with the next episode, and whether finishing an episode
-  clears the older ones from New.
+  continuing with the next episode, whether finishing an episode
+  clears the older ones from New, and hiding played episodes on podcast
+  pages (searching still finds them).
 - **Backup.** Export subscriptions, folders, progress, the queue and
-  settings to a JSON file, and import it on another phone or after a
-  reinstall. Importing merges; downloads aren't included.
+  settings to an OPML file, and import it on another phone or after a
+  reinstall. It's standard OPML, so other podcast apps can import your
+  subscriptions from it, and Tinypod imports any app's OPML file the same
+  way. Importing merges; downloads aren't included.
 - **Adapts to the screen.** Foldables, tablets and landscape get a side
   rail instead of the bottom bar, and the player fits any window without
   scrolling.

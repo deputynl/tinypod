@@ -6,8 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -52,14 +55,35 @@ private object ArtworkSeeds {
  */
 @Composable
 fun ArtworkTheme(artworkUrl: String?, content: @Composable () -> Unit) {
+  LocalArtworkReporter.current?.let { report ->
+    DisposableEffect(report, artworkUrl) {
+      report(artworkUrl)
+      onDispose { report(null) }
+    }
+  }
+  MaterialTheme(colorScheme = rememberArtworkScheme(artworkUrl), typography = MaterialTheme.typography) {
+    // Only the screen itself reports its artwork, not anything nested inside it.
+    CompositionLocalProvider(LocalArtworkReporter provides null, content = content)
+  }
+}
+
+/** The current colour scheme re-coloured from [artworkUrl], as [ArtworkTheme] applies it. */
+@Composable
+fun rememberArtworkScheme(artworkUrl: String?): ColorScheme {
   val base = MaterialTheme.colorScheme
   val context = LocalContext.current
   val seed by
     produceState(ArtworkSeeds.cached(artworkUrl), artworkUrl) { value = artworkUrl?.let { ArtworkSeeds.load(context.applicationContext, it) } }
   val dark = base.background.luminance() < 0.5f
   val target = seed?.let { ArtworkColors.scheme(it, base, dark) } ?: base
-  MaterialTheme(colorScheme = target.animated(), typography = MaterialTheme.typography, content = content)
+  return target.animated()
 }
+
+/**
+ * Receives the artwork a screen is themed in (null when it leaves), so the app's chrome around it
+ * (the navigation bar) can match. Provided per navigation entry; null elsewhere.
+ */
+val LocalArtworkReporter = staticCompositionLocalOf<((String?) -> Unit)?> { null }
 
 /** The roles [ArtworkColors.scheme] changes, each animated towards [this]. */
 @Composable

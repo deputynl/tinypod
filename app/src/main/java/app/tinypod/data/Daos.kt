@@ -10,6 +10,12 @@ import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /** Episodes with their podcast's title and artwork, and whether they're new (the same rule as [EpisodeDao.observeNew]). */
+/**
+ * How far into an episode counts as finishing it: what's left after this is usually credits, an ad
+ * or a trailer for something else.
+ */
+const val FINISHED_FRACTION = 0.98
+
 private const val EPISODE_ROW =
   "SELECT e.*, p.title AS podcastTitle, p.artworkUrl AS artworkUrl, p.link AS podcastLink, (e.isPlayed = 0 AND e.publishedAt >= p.newSince) AS isNew " +
     "FROM Episode e JOIN Podcast p ON p.id = e.podcastId"
@@ -59,9 +65,24 @@ interface PodcastDao {
 
   @Query(
     """UPDATE Podcast SET title = :title, author = :author, description = :description,
-       artworkUrl = COALESCE(:artworkUrl, artworkUrl), link = :link, lastFetchedAt = :fetchedAt WHERE id = :id"""
+       artworkUrl = COALESCE(:artworkUrl, artworkUrl), link = :link, lastFetchedAt = :fetchedAt,
+       etag = :etag, lastModified = :lastModified WHERE id = :id"""
   )
-  suspend fun updateFeedInfo(id: Long, title: String, author: String?, description: String?, artworkUrl: String?, link: String?, fetchedAt: Long)
+  suspend fun updateFeedInfo(
+    id: Long,
+    title: String,
+    author: String?,
+    description: String?,
+    artworkUrl: String?,
+    link: String?,
+    fetchedAt: Long,
+    etag: String?,
+    lastModified: String?,
+  )
+
+  /** Records a refresh that found the feed unchanged. */
+  @Query("UPDATE Podcast SET lastFetchedAt = :fetchedAt WHERE id = :id")
+  suspend fun markFetched(id: Long, fetchedAt: Long)
 
   /** Moves [Podcast.newSince] forward to [newSince], never backwards. */
   @Query("UPDATE Podcast SET newSince = MAX(newSince, :newSince) WHERE id = :podcastId")
@@ -151,6 +172,21 @@ interface EpisodeDao {
 
   @Query("UPDATE Episode SET positionMs = :positionMs, lastPlayedAt = :playedAt WHERE id = :id")
   suspend fun savePosition(id: Long, positionMs: Long, playedAt: Long)
+
+  /**
+   * Saves how far an episode has got, or, past [FINISHED_FRACTION] of its length, marks it finished
+   * (see [markFinished]); a finished one's position isn't kept. Only the measured length counts: a
+   * feed's duration is often too short (inserted ads), which would finish episodes too early.
+   */
+  @Transaction
+  suspend fun saveProgress(id: Long, positionMs: Long, playedAt: Long, advanceNew: Boolean) {
+    val episode = get(id) ?: return
+    val length = episode.durationMs?.takeIf { episode.durationMeasured && it > 0 }
+    when {
+      length == null || positionMs < length * FINISHED_FRACTION -> savePosition(id, positionMs, playedAt)
+      !episode.isPlayed -> markFinished(id, playedAt, advanceNew)
+    }
+  }
 
   /** Marks an episode (un)played; either way it starts from the beginning next time. */
   @Query("UPDATE Episode SET isPlayed = :played, positionMs = 0 WHERE id = :id")

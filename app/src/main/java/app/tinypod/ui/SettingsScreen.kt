@@ -121,12 +121,13 @@ fun SettingsScreen() {
   val clearOlder by settings.clearOlderOnFinish.collectAsStateWithLifecycle()
   val continueWithNext by settings.continueWithNext.collectAsStateWithLifecycle()
   val rewind by settings.rewindOnResumeSec.collectAsStateWithLifecycle()
+  val hidePlayed by settings.hidePlayed.collectAsStateWithLifecycle()
   val busy by vm.busy.collectAsStateWithLifecycle()
   val message by vm.message.collectAsStateWithLifecycle()
   val snackbar = remember { SnackbarHostState() }
   var pickRewind by remember { mutableStateOf(false) }
 
-  val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(vm::export) }
+  val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/x-opml")) { uri -> uri?.let(vm::export) }
   val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::import) }
 
   LaunchedEffect(message) {
@@ -163,17 +164,30 @@ fun SettingsScreen() {
         onChange = settings::setClearOlderOnFinish,
       )
 
+      SettingsSection("Podcast pages")
+      SwitchItem(
+        "Hide played episodes",
+        "List only the episodes you haven't finished. Searching a podcast still finds them all.",
+        checked = hidePlayed,
+        onChange = settings::setHidePlayed,
+      )
+
       SettingsSection("Backup")
       ListItem(
         headlineContent = { Text("Export") },
-        supportingContent = { Text("Save subscriptions, folders, progress, the queue and settings to a file. Downloads aren't included.") },
-        modifier = Modifier.clickable(enabled = !busy) { exporter.launch("tinypod-backup-${LocalDate.now()}.json") },
+        supportingContent = {
+          Text("Save subscriptions, folders, progress, the queue and settings to an OPML file. Other podcast apps can import its subscriptions. Downloads aren't included.")
+        },
+        modifier = Modifier.clickable(enabled = !busy) { exporter.launch("tinypod-backup-${LocalDate.now()}.opml") },
       )
       ListItem(
         headlineContent = { Text("Import") },
-        supportingContent = { Text("Restore from a backup file. It adds to what's here: nothing is removed, and its playback progress wins.") },
+        supportingContent = {
+          Text("Restore a Tinypod backup, or bring in the subscriptions from another app's OPML file. It adds to what's here: nothing is removed, and the file's playback progress wins.")
+        },
         trailingContent = if (busy) ({ CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp) }) else null,
-        modifier = Modifier.clickable(enabled = !busy) { importer.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
+        // Any file: OPML rarely comes with a proper type, and reading it tells whether it is one.
+        modifier = Modifier.clickable(enabled = !busy) { importer.launch(arrayOf("*/*")) },
       )
     }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))

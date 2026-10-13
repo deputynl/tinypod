@@ -71,10 +71,15 @@ class PodcastViewModel(private val podcastId: Long, app: TinypodApp) : ViewModel
   val episodes =
     app.database.episodeDao().observeForPodcast(podcastId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-  /** The episode search text; blank shows every episode. */
+  /** The episode search text; blank shows every episode (or every unplayed one, see [Settings.hidePlayed][app.tinypod.data.Settings.hidePlayed]). */
   val query = MutableStateFlow("")
+  val hidePlayed = app.settings.hidePlayed
   val results =
-    combine(episodes.map(::EpisodeSearch), query) { search, q -> search.search(q) }
+    combine(episodes.map(::EpisodeSearch), query, hidePlayed) { search, q, hide ->
+        val found = search.search(q)
+        // Searching looks through every episode: an old one you've heard is often what you're after.
+        if (hide && q.isBlank()) found.filter { !it.episode.isPlayed } else found
+      }
       .flowOn(Dispatchers.Default)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -102,6 +107,7 @@ fun PodcastScreen(podcastId: Long, onUnsubscribed: () -> Unit) {
   val episodes by vm.episodes.collectAsStateWithLifecycle()
   val results by vm.results.collectAsStateWithLifecycle()
   val query by vm.query.collectAsStateWithLifecycle()
+  val hidePlayed by vm.hidePlayed.collectAsStateWithLifecycle()
   val folders by vm.folders.collectAsStateWithLifecycle()
   val scope = rememberCoroutineScope()
   var confirmUnsubscribe by remember { mutableStateOf(false) }
@@ -115,6 +121,7 @@ fun PodcastScreen(podcastId: Long, onUnsubscribed: () -> Unit) {
         podcast,
         results,
         totalEpisodes = episodes.size,
+        hiddenPlayed = if (hidePlayed) episodes.count { it.episode.isPlayed } else 0,
         query = query,
         onQueryChange = { vm.query.value = it },
         folderName = folders.firstOrNull { it.id == podcast?.folderId }?.name,
@@ -175,6 +182,8 @@ fun PodcastContent(
   episodes: List<EpisodeWithPodcast>,
   totalEpisodes: Int,
   query: String,
+  /** How many played episodes are left out of the list, to say so under the search bar. */
+  hiddenPlayed: Int = 0,
   onQueryChange: (String) -> Unit,
   folderName: String?,
   onFolderClick: () -> Unit,
@@ -198,7 +207,12 @@ fun PodcastContent(
   // The header scrolls away with the episodes; the search bar then sticks to the top.
   EpisodeList(
     episodes,
-    empty = if (searching) "No episodes match “${query.trim()}”." else "This feed has no episodes.",
+    empty =
+      when {
+        searching -> "No episodes match “${query.trim()}”."
+        hiddenPlayed > 0 -> "You've played every episode."
+        else -> "This feed has no episodes."
+      },
     modifier = modifier,
     showPodcast = false,
     currentId = currentId,
@@ -206,7 +220,14 @@ fun PodcastContent(
     header = {
       if (podcast != null) item(key = "header") { PodcastHeader(podcast, folderName, onFolderClick, onUnsubscribe) }
       if (totalEpisodes > 0) {
-        stickyHeader(key = "search") { EpisodeSearchBar(query, onQueryChange, if (searching) "${episodes.size} of $totalEpisodes episodes" else null) }
+        val note =
+          when {
+            searching -> "${episodes.size} of $totalEpisodes episodes"
+            hiddenPlayed == 1 -> "1 played episode hidden"
+            hiddenPlayed > 1 -> "$hiddenPlayed played episodes hidden"
+            else -> null
+          }
+        stickyHeader(key = "search") { EpisodeSearchBar(query, onQueryChange, note) }
       }
     },
     onEvent = onEvent,

@@ -1,5 +1,6 @@
 package app.tinypod.player
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import androidx.core.net.toUri
@@ -23,6 +24,7 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
+import app.tinypod.MainActivity
 import app.tinypod.TinypodApp
 import app.tinypod.data.EpisodeWithPodcast
 import java.io.File
@@ -45,7 +47,8 @@ import kotlinx.coroutines.sync.withLock
  * The player's playlist mirrors the queue: the playing episode, then the queue (see [syncPlaylist]).
  * Media items coming from controllers carry only the episode id as mediaId; they're resolved here
  * from the database, so the UI and Android Auto never need to know about URLs or saved positions.
- * When an episode finishes, it's marked played (leaving the queue) and the top of the queue plays next.
+ * An episode is marked played (leaving the queue) once it's 98% through (see
+ * [EpisodeDao.saveProgress][app.tinypod.data.EpisodeDao.saveProgress]); when it ends, the top of the queue plays next.
  */
 class PlaybackService : MediaLibraryService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -84,7 +87,10 @@ class PlaybackService : MediaLibraryService() {
     player.playbackParameters = PlaybackParameters(settings.speed.value)
     player.addListener(PlayerListener())
     session =
-      MediaLibrarySession.Builder(this, SkipButtonsPlayer(player), LibraryCallback()).setMediaButtonPreferences(mediaButtons()).build()
+      MediaLibrarySession.Builder(this, SkipButtonsPlayer(player), LibraryCallback())
+        .setMediaButtonPreferences(mediaButtons())
+        .setSessionActivity(openPlayerIntent())
+        .build()
 
     scope.launch { restoreLastEpisode() }
     // Queue changes (from the phone or the car) update the player's playlist right away.
@@ -94,10 +100,23 @@ class PlaybackService : MediaLibraryService() {
     scope.launch {
       while (isActive) {
         delay(SAVE_INTERVAL_MS)
-        if (player.isPlaying) savePosition()
+        if (player.isPlaying) {
+          // Moving straight on to the next episode keeps the player ready, so this is when its length shows up.
+          if (!durationSaved) saveMeasuredDuration()
+          savePosition()
+        }
       }
     }
   }
+
+  /** Tapping the notification or lock-screen player opens the app on the full-screen player. */
+  private fun openPlayerIntent(): PendingIntent =
+    PendingIntent.getActivity(
+      this,
+      0,
+      Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_FULL_PLAYER, true),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
@@ -161,7 +180,7 @@ class PlaybackService : MediaLibraryService() {
   private suspend fun savePosition() {
     val id = currentEpisodeId() ?: return
     if (!playedSinceLoad || player.playbackState == Player.STATE_ENDED) return
-    db.episodeDao().savePosition(id, player.currentPosition, System.currentTimeMillis())
+    db.episodeDao().saveProgress(id, player.currentPosition, System.currentTimeMillis(), advanceNew = settings.clearOlderOnFinish.value)
   }
 
   private fun savePositionBlocking() {
@@ -169,7 +188,8 @@ class PlaybackService : MediaLibraryService() {
     if (!playedSinceLoad || player.playbackState == Player.STATE_ENDED) return
     val position = player.currentPosition
     // The service is going away; a short blocking write is the only way to be sure it lands.
-    runBlocking(Dispatchers.IO) { db.episodeDao().savePosition(id, position, System.currentTimeMillis()) }
+    val advanceNew = settings.clearOlderOnFinish.value
+    runBlocking(Dispatchers.IO) { db.episodeDao().saveProgress(id, position, System.currentTimeMillis(), advanceNew) }
   }
 
   /** Stores the length of the loaded audio, which is often longer than the feed says (e.g. inserted ads). */
@@ -251,7 +271,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-      playedSinceLoad = false
+      // Playing straight on into the next episode (the end of one, or a jump in the car's queue) never
+      // pauses, so there's no onIsPlayingChanged to say the new one is being played.
+      playedSinceLoad = player.isPlaying
       durationSaved = false
       scope.launch {
         // Items set by a controller already start at the right place; moving within the playlist doesn't.
@@ -293,7 +315,10 @@ class PlaybackService : MediaLibraryService() {
         when (reason) {
           Player.DISCONTINUITY_REASON_AUTO_TRANSITION ->
             scope.launch { db.episodeDao().markFinished(oldId, now, advanceNew = settings.clearOlderOnFinish.value) }
-          Player.DISCONTINUITY_REASON_SEEK -> if (playedSinceLoad) scope.launch { db.episodeDao().savePosition(oldId, oldPosition.positionMs, now) }
+          Player.DISCONTINUITY_REASON_SEEK ->
+            if (playedSinceLoad) {
+              scope.launch { db.episodeDao().saveProgress(oldId, oldPosition.positionMs, now, advanceNew = settings.clearOlderOnFinish.value) }
+            }
         }
         return
       }
@@ -389,9 +414,10 @@ class PlaybackService : MediaLibraryService() {
     private fun speedIcon(speed: Float) =
       when (speed) {
         1f -> CommandButton.ICON_PLAYBACK_SPEED_1_0
+        1.25f -> CommandButton.ICON_PLAYBACK_SPEED_1_2 // the closest ready-made icon: there's none for 1.25×
         1.5f -> CommandButton.ICON_PLAYBACK_SPEED_1_5
         2f -> CommandButton.ICON_PLAYBACK_SPEED_2_0
-        else -> CommandButton.ICON_PLAYBACK_SPEED // no ready-made icon for 1.25×
+        else -> CommandButton.ICON_PLAYBACK_SPEED
       }
     private const val SAVE_INTERVAL_MS = 5_000L
 

@@ -39,6 +39,12 @@ data class Podcast(
   val newSince: Long = 0,
   /** The show's website (the channel's <link>), for sharing. */
   val link: String? = null,
+  /**
+   * The feed's ETag and Last-Modified headers from the last full fetch, sent back on the next one so
+   * an unchanged feed answers "304 Not Modified" instead of being downloaded and parsed again.
+   */
+  val etag: String? = null,
+  val lastModified: String? = null,
 )
 
 /**
