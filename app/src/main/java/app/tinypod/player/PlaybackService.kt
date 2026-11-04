@@ -11,7 +11,9 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
 import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -83,6 +85,7 @@ class PlaybackService : MediaLibraryService() {
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .setSeekBackIncrementMs(SKIP_BACK_MS)
         .setSeekForwardIncrementMs(SKIP_FORWARD_MS)
+        .setLoadControl(bufferControl())
         .build()
     player.playbackParameters = PlaybackParameters(settings.speed.value)
     player.addListener(PlayerListener())
@@ -426,6 +429,23 @@ class PlaybackService : MediaLibraryService() {
     private const val SAVE_INTERVAL_MS = 5_000L
 
     private const val CAR_REFRESH_AFTER_MS = 15 * 60_000L
+
+    private const val BUFFER_BEHIND_MS = 10 * 60_000
+    private const val BUFFER_AHEAD_MS = 5 * 60_000
+    /** Audio kept behind the playhead counts too, and the default (13 MB) would stop loading well short of the times above. */
+    private const val BUFFER_BYTES = 32 * 1024 * 1024
+
+    /**
+     * Keeps audio in memory on both sides of the playhead, so skipping back and over a few minutes of
+     * ads needn't touch the network; by default the player drops what it has played and holds 50 s ahead.
+     * Min and max ahead are equal so it tops up all the time, rather than waiting until it's nearly out.
+     */
+    internal fun bufferControl(): LoadControl =
+      DefaultLoadControl.Builder()
+        .setBackBuffer(BUFFER_BEHIND_MS, /* retainBackBufferFromKeyframe = */ true)
+        .setBufferDurationsMsForStreaming(BUFFER_AHEAD_MS, BUFFER_AHEAD_MS, DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS, DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+        .setTargetBufferBytes(BUFFER_BYTES)
+        .build()
 
     /** A playable item for an episode: the downloaded file if present, otherwise the stream URL. */
     fun EpisodeWithPodcast.toMediaItem(): MediaItem {
