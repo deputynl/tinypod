@@ -164,6 +164,8 @@ class BrowseTreeTest {
     assertEquals(setOf("podcast/$daily", "folder/$news", "new", "library"), changedBy { db.episodeDao().insertNew(listOf(published)) })
     assertEquals(setOf("history"), changedBy { db.episodeDao().savePosition(1, positionMs = 1_000, playedAt = 5_000) })
     assertEquals(emptySet<String>(), changedBy { db.episodeDao().savePosition(1, positionMs = 6_000, playedAt = 6_000) }) // just progress
+    val redated = published.copy(publishedAt = 500)
+    assertEquals(setOf("podcast/$daily"), changedBy { db.episodeDao().upsertFromFeed(listOf(redated)) })
   }
 
   @Test

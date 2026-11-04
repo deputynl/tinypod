@@ -114,5 +114,8 @@ data class ActiveDownload(val episodeId: Long, val downloadId: Long)
 /** A number per podcast, such as its count of new episodes. */
 data class PodcastCount(val podcastId: Long, val count: Int)
 
+/** See [EpisodeDao.observeEpisodeLists]. */
+data class EpisodeListSummary(val podcastId: Long, val count: Int, val dates: Long)
+
 /** A queued episode identified by its feed and guid, as stored in a backup. */
 data class QueueEntry(val feedUrl: String, val guid: String)

@@ -59,7 +59,8 @@ class PodcastRepository(private val db: TinypodDatabase, private val downloads: 
       Conditional.NotModified -> podcasts.markFetched(podcast.id, now)
       is Conditional.Fetched -> {
         val feed = result.value
-        episodes.upsertFromFeed(feed.episodes.map { it.toEpisode(podcast.id, fallbackDate = now) })
+        val undated = feed.episodes.filter { it.publishedAt == null }.mapTo(HashSet()) { it.guid }
+        episodes.upsertFromFeed(feed.episodes.map { it.toEpisode(podcast.id, fallbackDate = now) }, undated)
         podcasts.updateFeedInfo(podcast.id, feed.title, feed.author, feed.description, feed.artworkUrl, feed.link, now, result.etag, result.lastModified)
       }
     }

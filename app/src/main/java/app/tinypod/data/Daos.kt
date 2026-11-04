@@ -108,9 +108,9 @@ interface EpisodeDao {
   @Query("$EPISODE_ROW WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
   fun observeHistory(): Flow<List<EpisodeWithPodcast>>
 
-  /** How many episodes each podcast has. */
-  @Query("SELECT podcastId, COUNT(*) AS count FROM Episode GROUP BY podcastId")
-  fun observeEpisodeCounts(): Flow<List<PodcastCount>>
+  /** A summary per podcast that changes when an episode is added or removed, or its date changes. */
+  @Query("SELECT podcastId, COUNT(*) AS count, SUM(publishedAt) AS dates FROM Episode GROUP BY podcastId")
+  fun observeEpisodeLists(): Flow<List<EpisodeListSummary>>
 
   /** The episodes with a finished download. */
   @Query("SELECT id FROM Episode WHERE localFilePath IS NOT NULL ORDER BY publishedAt DESC")
@@ -165,17 +165,20 @@ interface EpisodeDao {
     """UPDATE Episode SET title = :title, audioUrl = :audioUrl,
        durationMs = CASE WHEN durationMeasured AND audioUrl = :audioUrl THEN durationMs ELSE COALESCE(:durationMs, durationMs) END,
        durationMeasured = durationMeasured AND audioUrl = :audioUrl,
-       description = :description, link = :link
+       description = :description, link = :link, publishedAt = COALESCE(:publishedAt, publishedAt)
        WHERE podcastId = :podcastId AND guid = :guid"""
   )
-  suspend fun updateFeedFields(podcastId: Long, guid: String, title: String, audioUrl: String, durationMs: Long?, description: String?, link: String?)
+  suspend fun updateFeedFields(podcastId: Long, guid: String, title: String, audioUrl: String, durationMs: Long?, description: String?, link: String?, publishedAt: Long?)
 
-  /** Adds new episodes and refreshes feed-provided fields of known ones, leaving playback state alone. */
+  /**
+   * Adds new episodes and refreshes feed-provided fields of known ones, leaving playback state alone.
+   * [undated] holds the guids whose date the feed didn't give (publishedAt is a stand-in): they keep the date they have.
+   */
   @Transaction
-  suspend fun upsertFromFeed(episodes: List<Episode>) {
+  suspend fun upsertFromFeed(episodes: List<Episode>, undated: Set<String> = emptySet()) {
     val ids = insertNew(episodes)
     episodes.forEachIndexed { i, e ->
-      if (ids[i] == -1L) updateFeedFields(e.podcastId, e.guid, e.title, e.audioUrl, e.durationMs, e.description, e.link)
+      if (ids[i] == -1L) updateFeedFields(e.podcastId, e.guid, e.title, e.audioUrl, e.durationMs, e.description, e.link, e.publishedAt.takeUnless { e.guid in undated })
     }
   }
 

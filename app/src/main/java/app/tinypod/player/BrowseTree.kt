@@ -102,7 +102,7 @@ class BrowseTree(
   /** For each list in the tree, a value that's different when the list needs reloading. */
   private fun listSignatures(): Flow<Map<String, Any>> {
     val ids = combine(episodes.observeHistoryIds(MAX_EPISODES), queue.observeIds(), episodes.observeDownloadedIds(), ::Triple)
-    return combine(ids, episodes.observeEpisodeCounts(), episodes.observeNewCounts(), podcasts.observeAll()) { (history, queued, downloaded), totals, new, all ->
+    return combine(ids, episodes.observeEpisodeLists(), episodes.observeNewCounts(), podcasts.observeAll()) { (history, queued, downloaded), lists, new, all ->
       val newCounts = new.associate { it.podcastId to it.count }
       buildMap {
         put(HISTORY, history)
@@ -110,7 +110,7 @@ class BrowseTree(
         put(DOWNLOADS, downloaded)
         put(NEW, newCounts)
         put(LIBRARY, listOf(downloaded.size, newCounts, all.map { listOf(it.id, it.title, it.folderId) }))
-        totals.forEach { put("$PODCAST/${it.podcastId}", it.count) }
+        lists.forEach { put("$PODCAST/${it.podcastId}", it) }
         all.filter { it.folderId != null }.groupBy { it.folderId }.forEach { (folderId, inside) ->
           put("$FOLDER/$folderId", inside.map { listOf(it.id, it.title, newCounts[it.id]) })
         }
