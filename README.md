@@ -69,8 +69,9 @@ feeds (plus Apple's public podcast directory when you search).
 
 Tinypod shows up as a media app in Android Auto:
 
-- Four tabs: **New**, **Library** (folders and podcasts as artwork tiles,
-  with "N new" under each), **Queue** and **Downloads**. New episodes
+- Four tabs: **New**, **Library** (Downloads, folders and podcasts as
+  artwork tiles, with "N new" under each), **Queue** and **History**, the
+  way back to what you listened to earlier. New episodes
   say "New" under their title. Downloaded
   episodes carry the car's "downloaded" badge, and played / in-progress
   episodes show their progress.

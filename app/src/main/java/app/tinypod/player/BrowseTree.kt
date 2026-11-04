@@ -9,13 +9,17 @@ import app.tinypod.data.EpisodeWithPodcast
 import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
 import app.tinypod.data.TinypodDatabase
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 
 /**
  * The browsable hierarchy Android Auto shows. Its top level becomes the car's tabs (at most four):
  *
- *     New ─ episodes          Queue ─ episodes          Downloads ─ episodes
- *     Library ─ folders ─ podcasts ─ episodes
+ *     New ─ episodes          Queue ─ episodes          History ─ episodes
+ *     Library ─ Downloads ─ episodes
+ *             ├ folders ─ podcasts ─ episodes
  *             └ unfiled podcasts ─ episodes
  *
  * Episodes use their plain database id as mediaId, like the phone UI, so [PlaybackService] resolves
@@ -41,7 +45,7 @@ class BrowseTree(
       browsable(NEW, "New"),
       browsable(LIBRARY, "Library", extras = gridOfChildren()),
       browsable(QUEUE, "Queue"),
-      browsable(DOWNLOADS, "Downloads"),
+      browsable(HISTORY, "History"),
     )
 
   /** The children of [parentId], or null if there is no such node. */
@@ -51,11 +55,13 @@ class BrowseTree(
       ROOT -> tabs
       NEW -> episodes.observeNew().first().map(::episodeItem)
       QUEUE -> queue.observe().first().map(::episodeItem)
-      DOWNLOADS -> episodes.observeDownloads().first().filter { it.episode.isDownloaded }.map(::episodeItem)
+      HISTORY -> episodes.observeHistory().first().take(MAX_EPISODES).map(::episodeItem)
+      DOWNLOADS -> downloaded().map(::episodeItem)
       LIBRARY -> {
         val all = podcasts.observeAll().first()
         val counts = newCounts()
-        folders.observeAll().first().map { folderItem(it, all, counts) } + all.filter { it.folderId == null }.map { podcastItem(it, counts) }
+        val downloads = downloaded().takeIf { it.isNotEmpty() }?.let(::downloadsItem)
+        listOfNotNull(downloads) + folders.observeAll().first().map { folderItem(it, all, counts) } + all.filter { it.folderId == null }.map { podcastItem(it, counts) }
       }
       FOLDER -> id?.takeIf { folders.observe(it).first() != null }?.let { folderId ->
         val counts = newCounts()
@@ -72,10 +78,43 @@ class BrowseTree(
     val (kind, id) = split(mediaId)
     return when (kind) {
       ROOT -> root
-      NEW, LIBRARY, QUEUE, DOWNLOADS -> tabs.first { it.mediaId == kind }
+      NEW, LIBRARY, QUEUE, HISTORY -> tabs.first { it.mediaId == kind }
+      DOWNLOADS -> downloadsItem(downloaded())
       FOLDER -> id?.let { folders.observe(it).first()?.let { folder -> folderItem(folder, podcasts.observeAll().first(), newCounts()) } }
       PODCAST -> id?.let { podcasts.observe(it).first()?.let { podcast -> podcastItem(podcast, newCounts()) } }
       else -> null
+    }
+  }
+
+  /**
+   * The lists that changed, one mediaId at a time, for telling the car: it keeps showing what it has
+   * loaded otherwise. Progress doesn't count, as it's saved every few seconds and reloading for that
+   * would be wasteful.
+   */
+  fun changes(): Flow<String> = flow {
+    var before: Map<String, Any>? = null
+    listSignatures().collect { now ->
+      before?.let { old -> (old.keys + now.keys).filter { old[it] != now[it] }.forEach { emit(it) } }
+      before = now
+    }
+  }
+
+  /** For each list in the tree, a value that's different when the list needs reloading. */
+  private fun listSignatures(): Flow<Map<String, Any>> {
+    val ids = combine(episodes.observeHistoryIds(MAX_EPISODES), queue.observeIds(), episodes.observeDownloadedIds(), ::Triple)
+    return combine(ids, episodes.observeEpisodeCounts(), episodes.observeNewCounts(), podcasts.observeAll()) { (history, queued, downloaded), totals, new, all ->
+      val newCounts = new.associate { it.podcastId to it.count }
+      buildMap {
+        put(HISTORY, history)
+        put(QUEUE, queued)
+        put(DOWNLOADS, downloaded)
+        put(NEW, newCounts)
+        put(LIBRARY, listOf(downloaded.size, newCounts, all.map { listOf(it.id, it.title, it.folderId) }))
+        totals.forEach { put("$PODCAST/${it.podcastId}", it.count) }
+        all.filter { it.folderId != null }.groupBy { it.folderId }.forEach { (folderId, inside) ->
+          put("$FOLDER/$folderId", inside.map { listOf(it.id, it.title, newCounts[it.id]) })
+        }
+      }
     }
   }
 
@@ -97,6 +136,17 @@ class BrowseTree(
 
   /** New episodes per podcast, as on the New tab. */
   private suspend fun newCounts() = episodes.observeNewCounts().first().associate { it.podcastId to it.count }
+
+  private suspend fun downloaded() = episodes.observeDownloads().first().filter { it.episode.isDownloaded }
+
+  /** History took Downloads' place among the four tabs, so it's a tile in the Library, with the latest download's artwork. */
+  private fun downloadsItem(rows: List<EpisodeWithPodcast>) =
+    browsable(
+      DOWNLOADS,
+      "Downloads",
+      subtitle = if (rows.size == 1) "1 episode" else "${rows.size} episodes",
+      artwork = rows.firstOrNull()?.let { artworkUri(it.episode.podcastId, it.artworkUrl) },
+    )
 
   /** The car has no count badges, so a count of new episodes goes in the subtitle under the tile. */
   private fun folderItem(folder: Folder, all: List<Podcast>, counts: Map<Long, Int>): MediaItem {
@@ -177,6 +227,7 @@ class BrowseTree(
     const val NEW = "new"
     const val LIBRARY = "library"
     const val QUEUE = "queue"
+    const val HISTORY = "history"
     const val DOWNLOADS = "downloads"
     const val FOLDER = "folder"
     const val PODCAST = "podcast"

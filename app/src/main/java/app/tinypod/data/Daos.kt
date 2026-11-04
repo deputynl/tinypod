@@ -108,6 +108,18 @@ interface EpisodeDao {
   @Query("$EPISODE_ROW WHERE e.lastPlayedAt IS NOT NULL ORDER BY e.lastPlayedAt DESC")
   fun observeHistory(): Flow<List<EpisodeWithPodcast>>
 
+  /** How many episodes each podcast has. */
+  @Query("SELECT podcastId, COUNT(*) AS count FROM Episode GROUP BY podcastId")
+  fun observeEpisodeCounts(): Flow<List<PodcastCount>>
+
+  /** The episodes with a finished download. */
+  @Query("SELECT id FROM Episode WHERE localFilePath IS NOT NULL ORDER BY publishedAt DESC")
+  fun observeDownloadedIds(): Flow<List<Long>>
+
+  /** The newest of History's episodes, in order. */
+  @Query("SELECT id FROM Episode WHERE lastPlayedAt IS NOT NULL ORDER BY lastPlayedAt DESC LIMIT :limit")
+  fun observeHistoryIds(limit: Int): Flow<List<Long>>
+
   /** Downloads in progress first, then finished ones; newest episodes first within each. */
   @Query("$EPISODE_ROW WHERE e.localFilePath IS NOT NULL OR e.downloadId IS NOT NULL ORDER BY e.downloadId IS NULL, e.publishedAt DESC")
   fun observeDownloads(): Flow<List<EpisodeWithPodcast>>

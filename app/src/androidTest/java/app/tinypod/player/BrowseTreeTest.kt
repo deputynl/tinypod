@@ -9,6 +9,11 @@ import app.tinypod.data.Episode
 import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
 import app.tinypod.data.TinypodDatabase
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -49,7 +54,7 @@ class BrowseTreeTest {
   private suspend fun ids(parent: String) = tree.children(parent)!!.map { it.mediaId }
 
   @Test
-  fun rootHasTheFourTabs() = runBlocking { assertEquals(listOf("new", "library", "queue", "downloads"), ids("root")) }
+  fun rootHasTheFourTabs() = runBlocking { assertEquals(listOf("new", "library", "queue", "history"), ids("root")) }
 
   @Test
   fun newEpisodesSayNewUnderTheTitle() = runBlocking {
@@ -110,6 +115,55 @@ class BrowseTreeTest {
     db.episodeDao().setLocalFile(1, "/files/episode-1.mp3")
     db.episodeDao().setDownloadId(3, 42)
     assertEquals(listOf("1"), ids("downloads"))
+  }
+
+  @Test
+  fun historyListsWhatWasPlayedLastFirst() = runBlocking {
+    assertEquals(emptyList<String>(), ids("history"))
+    db.episodeDao().savePosition(1, positionMs = 25_000, playedAt = 5_000) // this morning's news, not finished
+    db.episodeDao().markFinished(3, playedAt = 6_000, advanceNew = false)
+    db.episodeDao().savePosition(2, positionMs = 1_000, playedAt = 7_000)
+    assertEquals(listOf("2", "3", "1"), ids("history"))
+
+    val morning = tree.children("history")!!.last()
+    assertTrue(morning.mediaMetadata.isPlayable == true)
+    assertEquals(0.25, morning.mediaMetadata.extras!!.getDouble(MediaConstants.EXTRAS_KEY_COMPLETION_PERCENTAGE), 0.001)
+
+    db.episodeDao().removeFromHistory(3)
+    assertEquals(listOf("2", "1"), ids("history"))
+    assertEquals("History", tree.item("history")!!.mediaMetadata.title)
+  }
+
+  @Test
+  fun downloadsAreATileInTheLibraryOnceThereAreAny() = runBlocking {
+    assertFalse("downloads" in ids("library"))
+    db.episodeDao().setLocalFile(1, "/files/episode-1.mp3")
+    assertEquals(listOf("downloads", "folder/$news", "podcast/$comedy"), ids("library"))
+
+    val tile = tree.children("library")!!.first()
+    assertEquals("1 episode", tile.mediaMetadata.subtitle)
+    assertEquals(Uri.parse("content://art/$daily"), tile.mediaMetadata.artworkUri)
+    assertEquals("Downloads", tree.item("downloads")!!.mediaMetadata.title)
+  }
+
+  @Test
+  fun tellsTheCarWhichListsChanged() = runBlocking {
+    suspend fun changedBy(change: suspend () -> Unit): Set<String> {
+      val seen = mutableSetOf<String>()
+      val started = CompletableDeferred<Unit>()
+      val job = launch(Dispatchers.IO) { tree.changes().onStart { started.complete(Unit) }.collect { seen += it } }
+      started.await()
+      delay(300) // the first state, which is no change
+      change()
+      delay(300)
+      job.cancel()
+      return seen
+    }
+
+    val published = Episode(podcastId = daily, guid = "d3", title = "Daily 3", audioUrl = "https://d.example/3.mp3", publishedAt = 9_000)
+    assertEquals(setOf("podcast/$daily", "folder/$news", "new", "library"), changedBy { db.episodeDao().insertNew(listOf(published)) })
+    assertEquals(setOf("history"), changedBy { db.episodeDao().savePosition(1, positionMs = 1_000, playedAt = 5_000) })
+    assertEquals(emptySet<String>(), changedBy { db.episodeDao().savePosition(1, positionMs = 6_000, playedAt = 6_000) }) // just progress
   }
 
   @Test

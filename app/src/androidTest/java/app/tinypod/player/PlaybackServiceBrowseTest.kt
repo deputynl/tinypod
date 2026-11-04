@@ -5,15 +5,23 @@ import android.os.Bundle
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.SessionToken
+import androidx.media3.session.legacy.MediaBrowserCompat as LegacyBrowser
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.tinypod.TinypodApp
+import app.tinypod.data.Episode
+import app.tinypod.data.Podcast
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Browses the real service the way Android Auto does. Read-only, so it's safe on a device with real data. */
+/** Browses the real service the way Android Auto does. Safe on a device with real data: what it adds, it removes. */
 @RunWith(AndroidJUnit4::class)
 class PlaybackServiceBrowseTest {
   @Test
@@ -26,11 +34,51 @@ class PlaybackServiceBrowseTest {
       val root = onMain { browser.getLibraryRoot(null) }.get(10, TimeUnit.SECONDS)
       assertEquals(LibraryResult.RESULT_SUCCESS, root.resultCode)
       val tabs = onMain { browser.getChildren(root.value!!.mediaId, 0, 10, null) }.get(10, TimeUnit.SECONDS)
-      assertEquals(listOf("New", "Library", "Queue", "Downloads"), tabs.value!!.map { it.mediaMetadata.title.toString() })
+      assertEquals(listOf("New", "Library", "Queue", "History"), tabs.value!!.map { it.mediaMetadata.title.toString() })
       val library = onMain { browser.getChildren("library", 0, 100, null) }.get(10, TimeUnit.SECONDS)
       assertEquals(LibraryResult.RESULT_SUCCESS, library.resultCode)
+      // The car subscribes to what it shows, which needs each node to resolve; Downloads is no longer a tab.
+      for (node in listOf("history", "downloads")) {
+        assertEquals(LibraryResult.RESULT_SUCCESS, onMain { browser.subscribe(node, null) }.get(10, TimeUnit.SECONDS).resultCode)
+        onMain { browser.unsubscribe(node) }.get(10, TimeUnit.SECONDS)
+      }
     } finally {
       onMain { browser.release() }
+    }
+  }
+
+  /**
+   * Android Auto is a legacy browser and doesn't reload a list unless it's told to. It has to be
+   * MediaBrowserCompat: the platform's own MediaBrowser never reaches onSubscribe, so it's not sent changes.
+   */
+  @Test
+  fun aListTheCarIsShowingIsPushedWhenItChanges() {
+    val app = ApplicationProvider.getApplicationContext<TinypodApp>()
+    val ready = CountDownLatch(1)
+    val loads = LinkedBlockingQueue<List<String>>()
+    var browser: LegacyBrowser? = null
+    val podcastId = runBlocking { app.database.podcastDao().insert(Podcast(feedUrl = "https://push.example/${System.nanoTime()}", title = "Push test")) }
+    try {
+      onMain {
+        browser = LegacyBrowser(app, ComponentName(app, PlaybackService::class.java), object : LegacyBrowser.ConnectionCallback() {
+          override fun onConnected() = ready.countDown()
+        }, null).apply { connect() }
+      }
+      assertTrue(ready.await(10, TimeUnit.SECONDS))
+      onMain {
+        browser!!.subscribe("podcast/$podcastId", Bundle.EMPTY, object : LegacyBrowser.SubscriptionCallback() {
+          override fun onChildrenLoaded(parentId: String?, children: MutableList<LegacyBrowser.MediaItem>?, options: Bundle?) {
+            loads.add(children.orEmpty().map { it.getDescription().getTitle().toString() })
+          }
+        })
+      }
+      assertEquals(emptyList<String>(), loads.poll(10, TimeUnit.SECONDS))
+      val episode = Episode(podcastId = podcastId, guid = "1", title = "Fresh", audioUrl = "https://push.example/1.mp3", publishedAt = 1)
+      runBlocking { app.database.episodeDao().insertNew(listOf(episode)) }
+      assertEquals(listOf("Fresh"), loads.poll(10, TimeUnit.SECONDS))
+    } finally {
+      onMain { browser?.disconnect() }
+      runBlocking { app.database.podcastDao().delete(Podcast(id = podcastId, feedUrl = "", title = "")) }
     }
   }
 

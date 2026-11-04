@@ -95,6 +95,8 @@ class PlaybackService : MediaLibraryService() {
     scope.launch { restoreLastEpisode() }
     // Queue changes (from the phone or the car) update the player's playlist right away.
     scope.launch { db.queueDao().observeIds().collect { syncPlaylist() } }
+    // The car keeps showing a list it has loaded until it's told the list changed.
+    scope.launch { tree.changes().collect { node -> session?.notifyChildrenChanged(node, tree.children(node)?.size ?: 0, null) } }
     // The speed can also change outside the player, by importing a backup.
     scope.launch { settings.speed.collect { if (player.playbackParameters.speed != it) player.playbackParameters = PlaybackParameters(it) } }
     scope.launch {
@@ -331,6 +333,8 @@ class PlaybackService : MediaLibraryService() {
 
   private inner class LibraryCallback : MediaLibrarySession.Callback {
     override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+      // The app may not have been opened for a while, and the car has no pull-to-refresh.
+      if (session.isAutoCompanionController(controller)) scope.launch { (application as TinypodApp).repository.refreshAll(CAR_REFRESH_AFTER_MS) }
       val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(CYCLE_SPEED).build()
       return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands).build()
     }
@@ -420,6 +424,8 @@ class PlaybackService : MediaLibraryService() {
         else -> CommandButton.ICON_PLAYBACK_SPEED
       }
     private const val SAVE_INTERVAL_MS = 5_000L
+
+    private const val CAR_REFRESH_AFTER_MS = 15 * 60_000L
 
     /** A playable item for an episode: the downloaded file if present, otherwise the stream URL. */
     fun EpisodeWithPodcast.toMediaItem(): MediaItem {
