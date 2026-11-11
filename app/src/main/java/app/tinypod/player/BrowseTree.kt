@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaConstants
+import app.tinypod.data.EpisodeListSummary
 import app.tinypod.data.EpisodeWithPodcast
 import app.tinypod.data.Folder
 import app.tinypod.data.Podcast
@@ -23,7 +24,8 @@ import kotlinx.coroutines.flow.flow
  *             └ unfiled podcasts ─ episodes
  *
  * Episodes use their plain database id as mediaId, like the phone UI, so [PlaybackService] resolves
- * them the same way; everything else has a "kind/id" mediaId.
+ * them the same way; everything else has a "kind/id" mediaId. A podcast's adds "/version", which
+ * changes with its episode list (see [podcastMediaId]).
  */
 class BrowseTree(
   db: TinypodDatabase,
@@ -60,12 +62,14 @@ class BrowseTree(
       LIBRARY -> {
         val all = podcasts.observeAll().first()
         val counts = newCounts()
+        val lists = episodeLists()
         val downloads = downloaded().takeIf { it.isNotEmpty() }?.let(::downloadsItem)
-        listOfNotNull(downloads) + folders.observeAll().first().map { folderItem(it, all, counts) } + all.filter { it.folderId == null }.map { podcastItem(it, counts) }
+        listOfNotNull(downloads) + folders.observeAll().first().map { folderItem(it, all, counts) } + all.filter { it.folderId == null }.map { podcastItem(it, counts, lists) }
       }
       FOLDER -> id?.takeIf { folders.observe(it).first() != null }?.let { folderId ->
         val counts = newCounts()
-        podcasts.observeInFolder(folderId).first().map { podcastItem(it, counts) }
+        val lists = episodeLists()
+        podcasts.observeInFolder(folderId).first().map { podcastItem(it, counts, lists) }
       }
       PODCAST -> id?.takeIf { podcasts.observe(it).first() != null }?.let { episodes.observeForPodcast(it).first().take(MAX_EPISODES).map(::episodeItem) }
       else -> null
@@ -81,7 +85,7 @@ class BrowseTree(
       NEW, LIBRARY, QUEUE, HISTORY -> tabs.first { it.mediaId == kind }
       DOWNLOADS -> downloadsItem(downloaded())
       FOLDER -> id?.let { folders.observe(it).first()?.let { folder -> folderItem(folder, podcasts.observeAll().first(), newCounts()) } }
-      PODCAST -> id?.let { podcasts.observe(it).first()?.let { podcast -> podcastItem(podcast, newCounts()) } }
+      PODCAST -> id?.let { podcasts.observe(it).first()?.let { podcast -> podcastItem(podcast, newCounts(), episodeLists()) } }
       else -> null
     }
   }
@@ -104,15 +108,18 @@ class BrowseTree(
     val ids = combine(episodes.observeHistoryIds(MAX_EPISODES), queue.observeIds(), episodes.observeDownloadedIds(), ::Triple)
     return combine(ids, episodes.observeEpisodeLists(), episodes.observeNewCounts(), podcasts.observeAll()) { (history, queued, downloaded), lists, new, all ->
       val newCounts = new.associate { it.podcastId to it.count }
+      val byPodcast = lists.associateBy { it.podcastId }
+      fun podcastId(p: Podcast) = podcastMediaId(p.id, byPodcast[p.id])
       buildMap {
         put(HISTORY, history)
         put(QUEUE, queued)
         put(DOWNLOADS, downloaded)
         put(NEW, newCounts)
-        put(LIBRARY, listOf(downloaded.size, newCounts, all.map { listOf(it.id, it.title, it.folderId) }))
-        lists.forEach { put("$PODCAST/${it.podcastId}", it) }
+        put(LIBRARY, listOf(downloaded.size, newCounts, all.map { listOf(podcastId(it), it.title, it.folderId) }))
+        // A changed list gets a new mediaId, so the old one (which the car may be showing) is reported as changed too.
+        all.forEach { put(podcastId(it), byPodcast[it.id] ?: 0) }
         all.filter { it.folderId != null }.groupBy { it.folderId }.forEach { (folderId, inside) ->
-          put("$FOLDER/$folderId", inside.map { listOf(it.id, it.title, newCounts[it.id]) })
+          put("$FOLDER/$folderId", inside.map { listOf(podcastId(it), it.title, newCounts[it.id]) })
         }
       }
     }
@@ -136,6 +143,8 @@ class BrowseTree(
 
   /** New episodes per podcast, as on the New tab. */
   private suspend fun newCounts() = episodes.observeNewCounts().first().associate { it.podcastId to it.count }
+
+  private suspend fun episodeLists() = episodes.observeEpisodeLists().first().associateBy { it.podcastId }
 
   private suspend fun downloaded() = episodes.observeDownloads().first().filter { it.episode.isDownloaded }
 
@@ -161,9 +170,9 @@ class BrowseTree(
     )
   }
 
-  private fun podcastItem(podcast: Podcast, counts: Map<Long, Int>): MediaItem {
+  private fun podcastItem(podcast: Podcast, counts: Map<Long, Int>, lists: Map<Long, EpisodeListSummary>): MediaItem {
     val new = counts[podcast.id] ?: 0
-    return browsable("$PODCAST/${podcast.id}", podcast.title, subtitle = if (new > 0) "$new new" else podcast.author, artwork = artworkUri(podcast.id, podcast.artworkUrl))
+    return browsable(podcastMediaId(podcast.id, lists[podcast.id]), podcast.title, subtitle = if (new > 0) "$new new" else podcast.author, artwork = artworkUri(podcast.id, podcast.artworkUrl))
   }
 
   /** Asks the car to show this node's browsable children (folders, podcasts) as artwork tiles. */
@@ -220,7 +229,17 @@ class BrowseTree(
       )
       .build()
 
-  private fun split(mediaId: String): Pair<String, Long?> = mediaId.substringBefore('/') to mediaId.substringAfter('/', "").toLongOrNull()
+  /**
+   * The car remembers how far a list was scrolled by its mediaId, and keeps the same row in view when
+   * a list is reloaded, so new episodes at the top end up out of sight. Giving a podcast a new mediaId
+   * whenever its episode list changes makes it a list the car hasn't seen yet, so it opens at the top
+   * (the newest episode).
+   */
+  private fun podcastMediaId(podcastId: Long, list: EpisodeListSummary?) =
+    if (list == null) "$PODCAST/$podcastId" else "$PODCAST/$podcastId/${list.hashCode().toUInt().toString(36)}"
+
+  /** The kind and id of a "kind/id[/version]" mediaId. */
+  private fun split(mediaId: String): Pair<String, Long?> = mediaId.substringBefore('/') to mediaId.split('/').getOrNull(1)?.toLongOrNull()
 
   companion object {
     const val ROOT = "root"

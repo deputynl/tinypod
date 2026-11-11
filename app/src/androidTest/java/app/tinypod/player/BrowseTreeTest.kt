@@ -53,6 +53,11 @@ class BrowseTreeTest {
 
   private suspend fun ids(parent: String) = tree.children(parent)!!.map { it.mediaId }
 
+  /** A mediaId without the version a podcast's has. */
+  private fun node(mediaId: String) = mediaId.split('/').take(2).joinToString("/")
+
+  private suspend fun nodes(parent: String) = ids(parent).map(::node)
+
   @Test
   fun rootHasTheFourTabs() = runBlocking { assertEquals(listOf("new", "library", "queue", "history"), ids("root")) }
 
@@ -65,8 +70,8 @@ class BrowseTreeTest {
 
   @Test
   fun libraryListsFoldersThenUnfiledPodcasts() = runBlocking {
-    assertEquals(listOf("folder/$news", "podcast/$comedy"), ids("library"))
-    assertEquals(listOf("podcast/$daily"), ids("folder/$news"))
+    assertEquals(listOf("folder/$news", "podcast/$comedy"), nodes("library"))
+    assertEquals(listOf("podcast/$daily"), nodes("folder/$news"))
     assertTrue(tree.children("library")!!.all { it.mediaMetadata.isBrowsable == true })
   }
 
@@ -93,7 +98,7 @@ class BrowseTreeTest {
     assertEquals(grid, style(tree.item("folder/$news")!!))
 
     // The Daily Thing has two new episodes (1 and 2), Comedy Hour one.
-    val library = tree.children("library")!!.associateBy { it.mediaId }
+    val library = tree.children("library")!!.associateBy { node(it.mediaId) }
     assertEquals("2 new", library["folder/$news"]!!.mediaMetadata.subtitle)
     assertEquals("1 new", library["podcast/$comedy"]!!.mediaMetadata.subtitle)
     assertEquals("2 new", tree.children("folder/$news")!!.single().mediaMetadata.subtitle)
@@ -138,7 +143,7 @@ class BrowseTreeTest {
   fun downloadsAreATileInTheLibraryOnceThereAreAny() = runBlocking {
     assertFalse("downloads" in ids("library"))
     db.episodeDao().setLocalFile(1, "/files/episode-1.mp3")
-    assertEquals(listOf("downloads", "folder/$news", "podcast/$comedy"), ids("library"))
+    assertEquals(listOf("downloads", "folder/$news", "podcast/$comedy"), nodes("library"))
 
     val tile = tree.children("library")!!.first()
     assertEquals("1 episode", tile.mediaMetadata.subtitle)
@@ -151,7 +156,7 @@ class BrowseTreeTest {
     suspend fun changedBy(change: suspend () -> Unit): Set<String> {
       val seen = mutableSetOf<String>()
       val started = CompletableDeferred<Unit>()
-      val job = launch(Dispatchers.IO) { tree.changes().onStart { started.complete(Unit) }.collect { seen += it } }
+      val job = launch(Dispatchers.IO) { tree.changes().onStart { started.complete(Unit) }.collect { seen += node(it) } }
       started.await()
       delay(300) // the first state, which is no change
       change()
@@ -165,7 +170,25 @@ class BrowseTreeTest {
     assertEquals(setOf("history"), changedBy { db.episodeDao().savePosition(1, positionMs = 1_000, playedAt = 5_000) })
     assertEquals(emptySet<String>(), changedBy { db.episodeDao().savePosition(1, positionMs = 6_000, playedAt = 6_000) }) // just progress
     val redated = published.copy(publishedAt = 500)
-    assertEquals(setOf("podcast/$daily"), changedBy { db.episodeDao().upsertFromFeed(listOf(redated)) })
+    // The tiles leading to the podcast change too: they get its new mediaId.
+    assertEquals(setOf("podcast/$daily", "folder/$news", "library"), changedBy { db.episodeDao().upsertFromFeed(listOf(redated)) })
+  }
+
+  @Test
+  fun aPodcastWithNewEpisodesIsANewListToTheCar() = runBlocking {
+    val before = ids("folder/$news").single()
+    assertEquals(before, ids("folder/$news").single()) // stable while nothing changes
+    db.episodeDao().savePosition(1, positionMs = 1_000, playedAt = 5_000)
+    assertEquals(before, ids("folder/$news").single()) // progress doesn't count
+
+    db.episodeDao().insertNew(listOf(Episode(podcastId = daily, guid = "d3", title = "Daily 3", audioUrl = "https://d.example/3.mp3", publishedAt = 9_000)))
+    val after = ids("folder/$news").single()
+    assertTrue(after != before && after.startsWith("podcast/$daily/"))
+    assertEquals(after, tree.item("podcast/$daily")!!.mediaId)
+
+    // The old mediaId, which the car may still be showing, lists what's there now.
+    assertEquals(listOf("Daily 3", "Daily 2", "Daily 1"), tree.children(before)!!.map { it.mediaMetadata.title.toString() })
+    assertEquals(after, tree.item(before)!!.mediaId)
   }
 
   @Test
