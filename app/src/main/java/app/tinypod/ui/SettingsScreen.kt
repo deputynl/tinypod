@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -53,6 +54,9 @@ import kotlinx.coroutines.withContext
 
 class SettingsViewModel(private val app: TinypodApp) : ViewModel() {
   val settings = app.settings
+
+  /** The installed version's name, as in the store ("1.4"); not the version code. */
+  val version: String = app.packageManager.getPackageInfo(app.packageName, 0).versionName.orEmpty()
 
   private val _busy = MutableStateFlow(false)
 
@@ -188,6 +192,14 @@ fun SettingsScreen() {
         trailingContent = if (busy) ({ CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp) }) else null,
         // Any file: OPML rarely comes with a proper type, and reading it tells whether it is one.
         modifier = Modifier.clickable(enabled = !busy) { importer.launch(arrayOf("*/*")) },
+      )
+
+      Text(
+        "Tinypod ${vm.version}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(16.dp, 24.dp),
+        textAlign = TextAlign.Center,
       )
     }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
